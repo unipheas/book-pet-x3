@@ -68,10 +68,15 @@ void PetEngine::apply(PetAction action) {
   save();
 }
 
+void PetEngine::wake() {
+  if (!pet.sleeping) return;
+  pet.sleeping = false;
+  save();
+}
+
 void PetEngine::save() const {
   Preferences prefs;
   prefs.begin(kNamespace, false);
   prefs.putBytes(kStateKey, &pet, sizeof(pet));
   prefs.end();
 }
-

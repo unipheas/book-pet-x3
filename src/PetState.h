@@ -20,6 +20,7 @@ class PetEngine {
   const PetState& state() const { return pet; }
   bool tick(uint32_t nowMs);
   void apply(PetAction action);
+  void wake();
   void save() const;
 
  private:
@@ -28,4 +29,3 @@ class PetEngine {
   uint32_t lastTickMs = 0;
   uint8_t unsavedTicks = 0;
 };
-

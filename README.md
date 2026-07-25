@@ -10,8 +10,8 @@ built. It does not use Wi-Fi, Bluetooth, an account, or a phone.
 
 ## Controls
 
-- Upper page button: choose **Feed**, **Play**, or **Sleep**
-- Lower page button: perform the selected action
+- Any upper/left/back-style page button: choose **Feed**, **Play**, or **Sleep**
+- Any lower/right/confirm-style page button: perform the selected action
 - Hold power for about 1.2 seconds: save and sleep
 - Two minutes without input: save and sleep
 - Press power to wake
@@ -84,8 +84,9 @@ partition table, and OTA boot helper produced/selected by the verified
 PlatformIO build. PlatformIO writes them at the correct offsets; using `pio run
 --target upload` is safer than manually choosing offsets.
 
-The binary has been compiler-verified for the current X3 target but has not been
-run on the user's physical device yet. Treat the first flash as a hardware test.
+The binary has been compiler-verified and tested on an XTEINK X3 Developer
+Edition. All page-button routes, Feed, Play, Sleep, persistent state, power-off,
+and power-button wake were exercised on the physical device.
 
 ## Recovery and safety
 
@@ -105,11 +106,12 @@ anything.
 - Time: version 0.1 tracks active minutes, not real-world time while powered
   off. RTC-based aging is intentionally deferred until the first on-device test.
 
-## Next hardware test checklist
+## Hardware test record
 
-- Both page buttons register in the expected order.
-- Power hold sleeps, and power wakes.
-- Display orientation and margins are correct.
-- No visible ghosting after 12–20 actions.
-- State survives sleep and a charging cycle.
-- Battery behavior is acceptable over a day of casual use.
+- Page controls register and route correctly: verified.
+- Feed, Play, and Sleep: verified.
+- Power hold sleeps and power wakes: verified.
+- Wake visibly leaves the Dreaming state: verified.
+- Display orientation and margins: verified.
+- Longer-term ghosting, charging-cycle persistence, and battery-life testing
+  remain to be measured during normal use.

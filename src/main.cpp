@@ -5,6 +5,7 @@
 #include <esp_sleep.h>
 
 #include "Canvas.h"
+#include "InputRouter.h"
 #include "PetState.h"
 
 namespace {
@@ -128,6 +129,7 @@ void setup() {
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
   buttons.begin();
   pet.begin();
+  pet.wake();
   display.setDisplayX3();
   display.begin();
   display.requestResync();
@@ -139,20 +141,24 @@ void loop() {
   buttons.update();
   bool changed = pet.tick(millis());
 
-  if (buttons.wasPressed(InputManager::BTN_UP)) {
-    selected = static_cast<PetAction>((static_cast<uint8_t>(selected) + 1) % 3);
-    lastInputMs = millis();
-    changed = true;
-  }
-  if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-    pet.apply(selected);
-    lastInputMs = millis();
-    if (selected == PetAction::Sleep) {
-      render();
-      delay(300);
-      enterDeepSleep();
+  for (uint8_t button = InputManager::BTN_BACK;
+       button <= InputManager::BTN_DOWN; ++button) {
+    if (!buttons.wasPressed(button)) continue;
+    const InputIntent intent = routeButton(button);
+    if (intent == InputIntent::Choose) {
+      selected = static_cast<PetAction>((static_cast<uint8_t>(selected) + 1) % 3);
+      lastInputMs = millis();
+      changed = true;
+    } else if (intent == InputIntent::Act) {
+      pet.apply(selected);
+      lastInputMs = millis();
+      if (selected == PetAction::Sleep) {
+        render();
+        delay(300);
+        enterDeepSleep();
+      }
+      changed = true;
     }
-    changed = true;
   }
   if (buttons.isPressed(InputManager::BTN_POWER) &&
       buttons.getPowerButtonHeldTime() > 1200) {
@@ -166,4 +172,3 @@ void loop() {
   if (millis() - lastInputMs > AUTO_SLEEP_MS) enterDeepSleep();
   delay(10);
 }
-
