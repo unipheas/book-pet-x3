@@ -2,6 +2,27 @@
 
 All notable changes to Book Pet are documented here.
 
+## [0.4.0] - 2026-07-25
+
+### Added
+
+- Meet Mote after finishing one book and Pip after finishing three.
+- Log real reading progress and earn one food for every ten lifetime pages.
+- Finish books to discover Page Ball, Tiny Bell, Letter Blocks, and Paper Kite.
+- Equip unlocked toys and see them in the pet's room.
+- Use the dedicated Pet Life screen to control autonomous behavior.
+- Watch the active pet wander, investigate, play, become drowsy, fall asleep,
+  dream, and wake itself through battery-conscious step animation.
+- Preserve v0.2, v0.3, and development-v4 progress through automatic v5
+  save-data migration.
+
+### Changed
+
+- Reading rewards now have a focused menu separate from pet animation settings.
+- Diary, stats, Page Catch, and the home room now follow the selected pet.
+- Manual Rest remains asleep until power-button wake, while natural naps use
+  sparse timer-driven dream moments.
+
 ## [0.3.0] - 2026-07-25
 
 ### Added
@@ -55,3 +76,4 @@ All notable changes to Book Pet are documented here.
 [0.1.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.1.0
 [0.2.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.2.0
 [0.3.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.3.0
+[0.4.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.4.0
