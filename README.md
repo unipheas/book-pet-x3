@@ -189,5 +189,17 @@ license notice is preserved.
 The pinned community SDK is also MIT-licensed; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## AI-assisted development
+
+Book Pet has been developed extensively with OpenAI Codex as a coding,
+research, documentation, and release collaborator under human direction.
+No AI model runs in the released firmware: Byte's apparent thoughts and
+personality come from deterministic offline rules, and no pet data is sent to
+an AI provider.
+
+Read [AI_ASSISTED DEVELOPMENT DISCLOSURE](AI_DISCLOSURE.md) for the full
+breakdown of AI involvement, human oversight, validation, and contribution
+expectations.
+
 Book Pet is an independent community project and is not affiliated with or
 endorsed by XTEINK or the CrossPoint project.
