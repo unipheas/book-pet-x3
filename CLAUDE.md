@@ -10,7 +10,7 @@ When reviewing UI changes, flag anything that:
 
 - assumes a landscape logical canvas;
 - turns the creature back into a book or logo;
-- refreshes the panel for cosmetic animation;
+- refreshes the panel rapidly or without a meaningful pose or movement change;
 - hides essential actions behind network access;
 - claims the offline thought engine is sentient or cloud AI.
 

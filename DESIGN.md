@@ -36,6 +36,8 @@
 - **Action dock (612–680):** Feed, Play, Clean, Rest with one strong selection state.
 - **Controls (736–792):** Persistent button hints.
 - **Menus:** Full portrait screens, not tiny overlays.
+- **Pet Life:** Autonomous behavior has its own screen. Reading contains only
+  reading actions and rewards.
 
 ## Controls
 
@@ -47,24 +49,40 @@
 
 ## Pet personality
 
-- **Species:** Byte, an original pixel creature.
+- **Species:** Byte, Mote, and Pip—three original pixel creatures unlocked
+  through reading progress.
 - **Expression:** Pose, ears, eyes, mouth, and two or three emphasis marks.
 - **Thoughts:** Short deterministic lines driven by needs, progress, recent
   actions, and personality. They must never claim to be sentient or online.
-- **Economy:** Play and time uncover Page Bites. Page Bites can be baked into
-  food. Page Catch awards Story, Mystery, Science, and Adventure fragments.
-  Care and play award XP; levels change Byte's growth stage.
+- **Economy:** Page Catch awards Page Bites plus Story, Mystery, Science, and
+  Adventure fragments. Page Bites can be baked into food. Logged pages earn
+  food directly, and finished books unlock toys and pets. Care, play, and
+  reading award XP; levels change the current pet's growth stage.
 - **Memory:** A three-entry diary records the latest meaningful care and play
   moments rather than logging every simulation tick.
 - **Personality:** Curious, Cozy, or Bold emerges from the balance of play,
   feeding, cleaning, and rest. It changes thoughts without claiming sentience.
+- **Reading:** People log real pages after reading. Each ten lifetime pages
+  earns one food; finishing a book discovers a toy and can unlock a new pet.
+- **Pet family:** Byte is joined by Mote and Pip, each with an original
+  one-bit silhouette and a book-reading unlock path.
 
-## E-paper motion
+## E-paper life and motion
 
-- No idle refresh loop.
-- Change pose only after input, a meaningful simulation tick, or wake.
-- Use fast black-and-white refreshes for normal interaction.
-- Force a cleanup refresh after twelve fast updates and on boot.
+- Treat the home screen as a living diorama, not a static status page.
+- While awake and unattended, the pet changes expression, wanders between
+  grounded positions, investigates the room, and reacts to its equipped toy.
+- Movement is readable step animation rather than fake smooth motion: one
+  meaningful pose every several seconds, never rapid full-screen animation.
+- The pet visibly becomes drowsy before naturally falling asleep.
+- During low-power sleep, sparse timer wakes advance a dream pose with one
+  refresh. After resting, the pet may wake itself and resume its visible life.
+- Manual Rest and a power-button sleep remain quiet until the person wakes the
+  device; autonomous behavior never takes away that explicit control.
+- Use fast black-and-white refreshes for normal interaction and awake moments.
+  Force a cleanup refresh after twelve fast updates and on boot.
+- The Pet Life screen explains and toggles autonomous behavior. Reading never
+  contains animation or device-behavior settings.
 
 ## Decisions log
 
@@ -76,3 +94,7 @@
 | 2026-07-25 | Page Bite economy | Gives the pet a book-world metaphor without making the pet itself a book. |
 | 2026-07-25 | Memory-game page hunting | Makes earning pages active, tactile, and feasible on slow e-paper. |
 | 2026-07-25 | Care-shaped personality | Creates apparent inner life using transparent offline rules. |
+| 2026-07-25 | Reading earns care resources | Connects the virtual-pet economy to real-world reading without a phone or account. |
+| 2026-07-25 | Step-based ambient moments | Makes the retained e-paper scene feel alive while bounding battery use and ghosting. |
+| 2026-07-25 | Living-diorama rhythm | Visible wandering, drowsiness, dreams, and self-waking feel alive while remaining honest about step-based e-paper motion. |
+| 2026-07-25 | Separate Pet Life screen | Keeps reading rewards focused and makes autonomous behavior understandable and discoverable. |

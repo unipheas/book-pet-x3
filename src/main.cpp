@@ -2,7 +2,9 @@
 #include <EInkDisplay.h>
 #include <InputManager.h>
 #include <SPI.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 
 #include "Canvas.h"
 #include "PetRules.h"
@@ -18,7 +20,10 @@ constexpr int EPD_RST = 5;
 constexpr int EPD_BUSY = 6;
 constexpr int SPI_MISO = 7;
 constexpr gpio_num_t POWER_LATCH = GPIO_NUM_13;
-constexpr uint32_t AUTO_SLEEP_MS = 120'000;
+constexpr uint32_t AWAKE_MOMENT_MS = 15'000;
+constexpr uint32_t DROWSY_AFTER_MS = 2 * 60'000;
+constexpr uint32_t NATURAL_SLEEP_MS = 3 * 60'000;
+constexpr uint64_t AUTONOMY_WAKE_US = 15ULL * 60ULL * 1'000'000ULL;
 constexpr uint8_t FULL_REFRESH_EVERY = 12;
 
 enum class Screen : uint8_t {
@@ -27,6 +32,9 @@ enum class Screen : uint8_t {
   Pantry,
   Fragments,
   Diary,
+  Reading,
+  Toys,
+  Behavior,
   Stats,
   Pets,
   PageCatch
@@ -38,12 +46,19 @@ PetEngine pet;
 Screen screen = Screen::Home;
 PetAction selectedAction = PetAction::Feed;
 uint8_t menuIndex = 0;
+uint8_t readingIndex = 0;
+uint8_t readingPhase = 0;
+uint16_t pendingPages = 0;
+uint8_t petCursor = 0;
+uint8_t toyCursor = 0;
+bool drowsyShown = false;
 uint8_t gamePhase = 0;
 uint8_t playerLane = 1;
 uint8_t targetLane = 1;
 FragmentKind gameFragment = FragmentKind::Story;
 bool gameCaught = false;
 uint32_t lastInputMs = 0;
+uint32_t lastAmbientMs = 0;
 uint8_t fastRefreshes = 0;
 
 const char* actionName(PetAction action) {
@@ -100,23 +115,79 @@ void drawThought(Canvas& c, const char* thought) {
   if (second[0]) centeredText(c, 119, second, 2);
 }
 
+const char* const* spriteFor(const PetState& state, PetMood mood) {
+  if (state.species == static_cast<uint8_t>(PetSpecies::Mote)) {
+    if (mood == PetMood::Sleeping || state.ambientPose == 5) {
+      return PetSprite::MOTE_SLEEP;
+    }
+    if (mood == PetMood::Happy || state.idleVariant % 3 == 1) {
+      return PetSprite::MOTE_HAPPY;
+    }
+    return PetSprite::MOTE_IDLE;
+  }
+  if (state.species == static_cast<uint8_t>(PetSpecies::Pip)) {
+    if (mood == PetMood::Sleeping || state.ambientPose == 5) {
+      return PetSprite::PIP_SLEEP;
+    }
+    if (mood == PetMood::Happy || state.idleVariant % 3 == 1) {
+      return PetSprite::PIP_HAPPY;
+    }
+    return PetSprite::PIP_IDLE;
+  }
+  if (mood == PetMood::Sleeping || state.ambientPose == 5) {
+    return PetSprite::BYTE_SLEEP;
+  }
+  if (mood == PetMood::Happy || state.idleVariant % 3 == 1) {
+    return PetSprite::BYTE_HAPPY;
+  }
+  if (mood == PetMood::Hungry) return PetSprite::BYTE_HUNGRY;
+  if (mood == PetMood::Tired) return PetSprite::BYTE_TIRED;
+  if (mood == PetMood::Dirty) return PetSprite::BYTE_DIRTY;
+  return PetSprite::BYTE_IDLE;
+}
+
 void drawRoom(Canvas& c, const PetState& state, PetMood mood) {
   c.rect(22, 72, 484, 355);
   drawThought(c, pet.thought());
   c.line(23, 390, 505, 390);
   for (int x = 42; x < 505; x += 48) c.line(x, 390, x - 20, 426);
 
-  const char* const* sprite =
-      mood == PetMood::Sleeping ? PetSprite::BYTE_SLEEP
-      : mood == PetMood::Happy ? PetSprite::BYTE_HAPPY
-      : mood == PetMood::Hungry ? PetSprite::BYTE_HUNGRY
-      : mood == PetMood::Tired ? PetSprite::BYTE_TIRED
-      : mood == PetMood::Dirty ? PetSprite::BYTE_DIRTY
-                               : PetSprite::BYTE_IDLE;
+  const char* const* sprite = spriteFor(state, mood);
   const uint8_t scale = pet.lifeStage() == LifeStage::Hatchling ? 6
                         : pet.lifeStage() == LifeStage::Sprout ? 7 : 8;
   const int spriteSize = 24 * scale;
-  PetSprite::draw(c, sprite, (c.width() - spriteSize) / 2, 188, scale);
+  int petX = (c.width() - spriteSize) / 2;
+  if (state.ambientPose == 1) petX -= 55;
+  if (state.ambientPose == 2) petX += 55;
+  if (state.ambientPose == 4) petX -= 28;
+  const int petY = state.ambientPose == 3 ? 176 : 188;
+  PetSprite::draw(c, sprite, petX, petY, scale);
+
+  if (state.equippedToy != 0xFF) {
+    const int toyX = state.ambientPose == 2 ? 72 : 410;
+    switch (static_cast<ToyKind>(state.equippedToy)) {
+      case ToyKind::Ball:
+        c.rect(toyX, 336, 32, 32);
+        c.rect(toyX + 8, 344, 16, 16, true);
+        break;
+      case ToyKind::Bell:
+        c.line(toyX + 16, 330, toyX + 4, 362);
+        c.line(toyX + 16, 330, toyX + 28, 362);
+        c.line(toyX + 4, 362, toyX + 28, 362);
+        c.rect(toyX + 13, 365, 7, 7, true);
+        break;
+      case ToyKind::Blocks:
+        c.rect(toyX, 340, 28, 28);
+        c.text(toyX + 9, 349, "A", 1);
+        break;
+      case ToyKind::Kite:
+        c.line(toyX + 16, 330, toyX, 350);
+        c.line(toyX, 350, toyX + 16, 370);
+        c.line(toyX + 16, 370, toyX + 32, 350);
+        c.line(toyX + 32, 350, toyX + 16, 330);
+        break;
+    }
+  }
 
   if (mood == PetMood::Happy) {
     c.text(76, 208, "*", 4);
@@ -128,11 +199,23 @@ void drawRoom(Canvas& c, const PetState& state, PetMood mood) {
   } else if (mood == PetMood::Dirty) {
     c.text(84, 238, ".", 5);
     c.text(406, 294, ".", 4);
+  } else if (mood == PetMood::Sleeping) {
+    c.text(396, 215, "z", 5);
+    c.text(438, 190, "z", 3);
+    if (state.ambientPose >= 7) {
+      c.text(72, 220, state.ambientPose == 7 ? "*" : "o", 4);
+      c.text(105, 195, state.ambientPose == 7 ? "o" : "*", 2);
+    }
+  } else if (state.ambientPose == 1 || state.ambientPose == 2) {
+    const int trailX = state.ambientPose == 1 ? 395 : 92;
+    c.text(trailX, 352, ". .", 2);
+  } else if (state.ambientPose == 3) {
+    c.text(78, 205, "!", 4);
   }
 }
 
 void drawHeader(Canvas& c, const PetState& state) {
-  c.text(22, 18, "BYTE", 3);
+  c.text(22, 18, pet.speciesName(), 3);
   char value[32];
   snprintf(value, sizeof(value), "LV %u", state.level);
   c.text(205, 22, value, 2);
@@ -184,19 +267,102 @@ void drawTitle(Canvas& c, const char* title, const char* subtitle) {
 
 void drawMenu(Canvas& c) {
   static constexpr const char* items[] = {
-      "HOME", "PANTRY", "FRAGMENTS", "DIARY", "STATS", "PETS"};
+      "HOME", "READING", "PANTRY", "TOYS", "PET LIFE",
+      "FRAGMENTS", "DIARY", "STATS", "PETS"};
   drawTitle(c, "PET MENU", "SIDE BUTTONS MOVE  /  OK SELECT");
-  for (int i = 0; i < 6; ++i) {
-    const int y = 128 + i * 94;
-    if (menuIndex == i) c.rect(42, y - 16, 444, 60, true);
+  for (int i = 0; i < 9; ++i) {
+    const int y = 108 + i * 67;
+    if (menuIndex == i) c.rect(42, y - 10, 444, 46, true);
     if (menuIndex == i) {
-      for (int yy = y - 8; yy < y + 34; ++yy)
+      for (int yy = y - 5; yy < y + 27; ++yy)
         for (int xx = 54; xx < 474; ++xx) c.pixel(xx, yy, false);
     }
     c.text(72, y, items[i], 2);
     c.text(438, y, menuIndex == i ? ">" : "-", 2);
   }
   c.text(34, 744, "BACK HOME", 1);
+}
+
+void drawReading(Canvas& c) {
+  const PetState& state = pet.state();
+  drawTitle(c, "READING REWARDS", "REAL PAGES FEED YOUR PET");
+  char value[48];
+  if (readingPhase == 1) {
+    centeredText(c, 145, "HOW MANY PAGES DID YOU READ?", 1);
+    snprintf(value, sizeof(value), "%u", pendingPages);
+    centeredText(c, 235, value, 7);
+    centeredText(c, 355, "LEFT / RIGHT: 1 PAGE", 2);
+    centeredText(c, 400, "SIDE UP / DOWN: 10 PAGES", 2);
+    centeredText(c, 475, "EVERY 10 PAGES EARNS 1 FOOD", 1);
+    c.text(34, 744, "BACK CANCEL", 1);
+    c.text(410, 744, "OK SAVE", 1);
+    return;
+  }
+
+  snprintf(value, sizeof(value), "CURRENT BOOK   %u PAGES",
+           state.currentBookPages);
+  c.text(54, 140, value, 2);
+  snprintf(value, sizeof(value), "LIFETIME       %lu PAGES",
+           static_cast<unsigned long>(state.lifetimePages));
+  c.text(54, 185, value, 2);
+  snprintf(value, sizeof(value), "BOOKS FINISHED %u", state.booksFinished);
+  c.text(54, 230, value, 2);
+
+  static constexpr const char* choices[] = {"LOG PAGES", "FINISH THIS BOOK"};
+  for (int i = 0; i < 2; ++i) {
+    const int y = 330 + i * 105;
+    if (readingIndex == i) c.rect(45, y - 17, 438, 62, true);
+    if (readingIndex == i) {
+      for (int yy = y - 8; yy < y + 35; ++yy)
+        for (int xx = 56; xx < 472; ++xx) c.pixel(xx, yy, false);
+    }
+    c.text(70, y, choices[i], 2);
+  }
+  centeredText(c, 610, "10 PAGES = 1 FOOD", 2);
+  centeredText(c, 655, "FINISHED BOOKS UNLOCK TOYS + PETS", 1);
+  c.text(34, 744, "BACK MENU", 1);
+  c.text(416, 744, "OK", 1);
+}
+
+void drawToys(Canvas& c) {
+  const PetState& state = pet.state();
+  drawTitle(c, "TOY BOX", "FINISH BOOKS TO FIND TOYS");
+  for (int i = 0; i < 4; ++i) {
+    const int y = 145 + i * 105;
+    const bool unlocked = pet.toyUnlocked(i);
+    const bool selected = toyCursor == i;
+    if (selected) c.rect(42, y - 20, 444, 68, true);
+    if (selected) {
+      for (int yy = y - 9; yy < y + 36; ++yy)
+        for (int xx = 54; xx < 474; ++xx) c.pixel(xx, yy, false);
+    }
+    c.text(70, y, unlocked ? PetEngine::toyName(i) : "LOCKED", 2);
+    if (unlocked && state.equippedToy == i) c.text(420, y, "*", 2);
+  }
+  centeredText(c, 625, "LEFT / RIGHT CHOOSE  /  OK EQUIP", 1);
+  c.text(34, 744, "BACK MENU", 1);
+}
+
+void drawBehavior(Canvas& c) {
+  const PetState& state = pet.state();
+  drawTitle(c, "PET LIFE",
+            state.autonomousEnabled ? "ALIVE MODE IS ON" : "ALIVE MODE IS OFF");
+  c.rect(48, 135, 432, 110, state.autonomousEnabled);
+  if (state.autonomousEnabled) {
+    for (int y = 148; y < 231; ++y)
+      for (int x = 60; x < 468; ++x) c.pixel(x, y, false);
+  }
+  centeredText(c, 164, state.autonomousEnabled ? "TURN OFF" : "TURN ON", 3);
+  centeredText(c, 205, "OK TO CHANGE", 1);
+
+  c.text(62, 310, "WHILE AWAKE", 2);
+  c.text(62, 350, "WANDERS, LOOKS, AND PLAYS", 1);
+  c.text(62, 430, "WHEN TIRED", 2);
+  c.text(62, 470, "GETS DROWSY AND FALLS ASLEEP", 1);
+  c.text(62, 550, "WHILE ASLEEP", 2);
+  c.text(62, 590, "DREAMS, THEN WAKES BY ITSELF", 1);
+  centeredText(c, 670, "E-PAPER MOTION HAPPENS IN STEPS", 1);
+  c.text(34, 744, "BACK MENU", 1);
 }
 
 void drawFragments(Canvas& c) {
@@ -217,16 +383,18 @@ void drawFragments(Canvas& c) {
 }
 
 void drawDiary(Canvas& c) {
-  drawTitle(c, "BYTE'S DIARY", "THE LAST THREE MOMENTS");
+  char title[28];
+  snprintf(title, sizeof(title), "%s'S DIARY", pet.speciesName());
+  drawTitle(c, title, "THE LAST THREE MOMENTS");
   for (int i = 0; i < 3; ++i) {
     const int y = 145 + i * 150;
     c.rect(42, y - 22, 444, 105);
     char chapter[20];
-    snprintf(chapter, sizeof(chapter), "CHAPTER %u", i + 1);
+    snprintf(chapter, sizeof(chapter), "CHAPTER %d", i + 1);
     c.text(62, y, chapter, 2);
     c.text(62, y + 42, pet.diaryLine(i), 1);
   }
-  centeredText(c, 650, "BYTE REMEMBERS WHAT MATTERS", 1);
+  centeredText(c, 650, "YOUR PET REMEMBERS WHAT MATTERS", 1);
   c.text(34, 744, "BACK MENU", 1);
 }
 
@@ -248,7 +416,9 @@ void drawPantry(Canvas& c) {
 
 void drawStats(Canvas& c) {
   const PetState& state = pet.state();
-  drawTitle(c, "BYTE'S STORY", "LIFE SO FAR");
+  char title[28];
+  snprintf(title, sizeof(title), "%s'S STORY", pet.speciesName());
+  drawTitle(c, title, "LIFE SO FAR");
   char value[48];
   snprintf(value, sizeof(value), "LEVEL          %u", state.level);
   c.text(62, 150, value, 2);
@@ -274,19 +444,26 @@ void drawStats(Canvas& c) {
 }
 
 void drawPets(Canvas& c) {
-  const char* stage = pet.lifeStage() == LifeStage::Hatchling ? "HATCHLING"
-                      : pet.lifeStage() == LifeStage::Sprout ? "SPROUT"
-                                                             : "FAMILIAR";
-  drawTitle(c, "BYTE'S GROWTH", "CARE SHAPES WHO BYTE BECOMES");
-  c.rect(46, 132, 436, 180);
-  PetSprite::draw(c, PetSprite::BYTE_IDLE, 72, 145, 6);
-  c.text(250, 176, "BYTE", 3);
-  c.text(250, 220, stage, 2);
-  c.text(250, 258, "CURRENT FORM", 1);
-  c.rect(46, 350, 436, 150);
-  centeredText(c, 390, "? ? ?", 5);
-  centeredText(c, 460, "FUTURE PETS", 2);
-  centeredText(c, 570, "LEVEL UP TO GROW THE FAMILY", 1);
+  drawTitle(c, "PET FAMILY", "READ BOOKS TO MEET NEW FRIENDS");
+  const bool unlocked = pet.speciesUnlocked(petCursor);
+  const char* const* sprite = petCursor == 1 ? PetSprite::MOTE_IDLE
+                              : petCursor == 2 ? PetSprite::PIP_IDLE
+                                               : PetSprite::BYTE_IDLE;
+  c.rect(46, 132, 436, 300);
+  PetSprite::draw(c, sprite, 168, 165, 8);
+  centeredText(c, 375,
+               unlocked ? PetEngine::speciesName(petCursor) : "LOCKED", 3);
+  if (!unlocked) {
+    centeredText(c, 465,
+                 petCursor == 1 ? "FINISH 1 BOOK" : "FINISH 3 BOOKS", 2);
+  } else {
+    centeredText(c, 465,
+                 pet.state().species == petCursor ? "LIVING WITH YOU"
+                                                  : "OK TO CHOOSE",
+                 2);
+  }
+  centeredText(c, 565, "<  BROWSE PETS  >", 2);
+  centeredText(c, 625, "BYTE  /  MOTE  /  PIP", 1);
   c.text(34, 744, "BACK MENU", 1);
 }
 
@@ -330,9 +507,10 @@ void drawPageCatch(Canvas& c) {
     centeredText(c, 650, "<  PICK A LANE  >   OK", 2);
   } else {
     centeredText(c, 170, gameCaught ? "CAUGHT!" : "IT ESCAPED!", 4);
-    PetSprite::draw(c, gameCaught ? PetSprite::BYTE_HAPPY
-                                  : PetSprite::BYTE_HUNGRY,
-                    168, 260, 8);
+    const PetState& state = pet.state();
+    PetSprite::draw(
+        c, spriteFor(state, gameCaught ? PetMood::Happy : PetMood::Hungry),
+        168, 260, 8);
     centeredText(c, 535,
                  gameCaught ? "+2 PAGE BITES  +10 XP" : "+2 XP", 2);
     centeredText(c, 650, "OK: GO HOME", 2);
@@ -348,6 +526,9 @@ void render(bool forceFull = false) {
     case Screen::Home: drawHome(canvas); break;
     case Screen::Menu: drawMenu(canvas); break;
     case Screen::Pantry: drawPantry(canvas); break;
+    case Screen::Reading: drawReading(canvas); break;
+    case Screen::Toys: drawToys(canvas); break;
+    case Screen::Behavior: drawBehavior(canvas); break;
     case Screen::Fragments: drawFragments(canvas); break;
     case Screen::Diary: drawDiary(canvas); break;
     case Screen::Stats: drawStats(canvas); break;
@@ -361,6 +542,9 @@ void render(bool forceFull = false) {
 }
 
 void enterDeepSleep() {
+  Serial.printf("[bookpet] deep sleep pet_sleeping=%u\n",
+                pet.state().sleeping);
+  Serial.flush();
   pet.save();
   display.deepSleep();
   while (buttons.isPressed(InputManager::BTN_POWER)) {
@@ -378,6 +562,68 @@ void enterDeepSleep() {
   esp_deep_sleep_start();
 }
 
+void enterDreamSleep() {
+  while (pet.state().sleeping && pet.state().autonomousEnabled) {
+    pet.save();
+    display.deepSleep();
+    while (buttons.isPressed(InputManager::BTN_POWER)) {
+      buttons.update();
+      delay(20);
+    }
+
+    pinMode(InputManager::POWER_BUTTON_PIN, INPUT_PULLUP);
+    gpio_wakeup_enable(
+        static_cast<gpio_num_t>(InputManager::POWER_BUTTON_PIN),
+        GPIO_INTR_LOW_LEVEL);
+    const esp_err_t gpioResult = esp_sleep_enable_gpio_wakeup();
+    const esp_err_t timerResult =
+        esp_sleep_enable_timer_wakeup(AUTONOMY_WAKE_US);
+    Serial.printf(
+        "[bookpet] light sleep gpio=%d timer=%d interval_us=%llu\n",
+        static_cast<int>(gpioResult), static_cast<int>(timerResult),
+        static_cast<unsigned long long>(AUTONOMY_WAKE_US));
+    Serial.flush();
+
+    const esp_err_t sleepResult = esp_light_sleep_start();
+    const esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+    Serial.begin(115200);
+    delay(100);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    gpio_wakeup_disable(
+        static_cast<gpio_num_t>(InputManager::POWER_BUTTON_PIN));
+    Serial.printf("[bookpet] light wake result=%d cause=%d\n",
+                  static_cast<int>(sleepResult),
+                  static_cast<int>(wakeCause));
+
+    if (sleepResult != ESP_OK ||
+        wakeCause == ESP_SLEEP_WAKEUP_GPIO) {
+      pet.wake();
+    } else if (wakeCause == ESP_SLEEP_WAKEUP_TIMER) {
+      pet.dreamMoment();
+    } else {
+      pet.wake();
+    }
+
+    SPI.end();
+    SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
+    display.begin();
+    display.requestResync();
+    screen = Screen::Home;
+    const bool cleanupRefresh =
+        (pet.state().autonomousSteps + pet.state().sleepCycles) %
+            FULL_REFRESH_EVERY ==
+        0;
+    render(cleanupRefresh);
+    if (pet.state().sleeping) delay(400);
+  }
+
+  lastInputMs = millis();
+  lastAmbientMs = lastInputMs;
+  drowsyShown = false;
+  pet.resetTickClock();
+}
+
 void goBack() {
   if (screen == Screen::Home) {
     screen = Screen::Menu;
@@ -385,6 +631,9 @@ void goBack() {
     screen = Screen::Home;
   } else if (screen == Screen::PageCatch) {
     screen = Screen::Home;
+  } else if (screen == Screen::Reading && readingPhase == 1) {
+    readingPhase = 0;
+    pendingPages = 0;
   } else {
     screen = Screen::Menu;
   }
@@ -393,11 +642,14 @@ void goBack() {
 void selectMenuItem() {
   switch (menuIndex) {
     case 0: screen = Screen::Home; break;
-    case 1: screen = Screen::Pantry; break;
-    case 2: screen = Screen::Fragments; break;
-    case 3: screen = Screen::Diary; break;
-    case 4: screen = Screen::Stats; break;
-    case 5: screen = Screen::Pets; break;
+    case 1: screen = Screen::Reading; break;
+    case 2: screen = Screen::Pantry; break;
+    case 3: screen = Screen::Toys; break;
+    case 4: screen = Screen::Behavior; break;
+    case 5: screen = Screen::Fragments; break;
+    case 6: screen = Screen::Diary; break;
+    case 7: screen = Screen::Stats; break;
+    case 8: screen = Screen::Pets; break;
   }
 }
 
@@ -421,7 +673,6 @@ void handleInput() {
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
       if (selectedAction == PetAction::Play) {
         startPageCatch();
-        changed = true;
       } else {
         pet.apply(selectedAction);
       }
@@ -434,11 +685,11 @@ void handleInput() {
     }
   } else if (screen == Screen::Menu) {
     if (buttons.wasPressed(InputManager::BTN_UP)) {
-      menuIndex = (menuIndex + 5) % 6;
+      menuIndex = (menuIndex + 8) % 9;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-      menuIndex = (menuIndex + 1) % 6;
+      menuIndex = (menuIndex + 1) % 9;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
@@ -470,9 +721,84 @@ void handleInput() {
       }
       changed = true;
     }
+  } else if (screen == Screen::Reading) {
+    if (readingPhase == 0) {
+      if (buttons.wasPressed(InputManager::BTN_UP)) {
+        readingIndex = (readingIndex + 1) % 2;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+        readingIndex = (readingIndex + 1) % 2;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+        if (readingIndex == 0) {
+          readingPhase = 1;
+          pendingPages = 0;
+        } else {
+          pet.finishBook();
+        }
+        changed = true;
+      }
+    } else {
+      if (buttons.wasPressed(InputManager::BTN_LEFT)) {
+        if (pendingPages > 0) pendingPages--;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_RIGHT)) {
+        if (pendingPages < 999) pendingPages++;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_UP)) {
+        pendingPages = min<uint16_t>(999, pendingPages + 10);
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+        pendingPages = pendingPages >= 10 ? pendingPages - 10 : 0;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+        pet.logPages(pendingPages);
+        pendingPages = 0;
+        readingPhase = 0;
+        changed = true;
+      }
+    }
+  } else if (screen == Screen::Pets) {
+    if (buttons.wasPressed(InputManager::BTN_LEFT)) {
+      petCursor = (petCursor + 2) % 3;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_RIGHT)) {
+      petCursor = (petCursor + 1) % 3;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      pet.selectSpecies(petCursor);
+      changed = true;
+    }
+  } else if (screen == Screen::Toys) {
+    if (buttons.wasPressed(InputManager::BTN_LEFT)) {
+      toyCursor = (toyCursor + 3) % 4;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_RIGHT)) {
+      toyCursor = (toyCursor + 1) % 4;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      pet.equipToy(toyCursor);
+      changed = true;
+    }
+  } else if (screen == Screen::Behavior &&
+             buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+    pet.toggleAutonomy();
+    changed = true;
   }
   if (changed) {
     lastInputMs = millis();
+    lastAmbientMs = lastInputMs;
+    drowsyShown = false;
     render();
   }
 }
@@ -480,7 +806,15 @@ void handleInput() {
 
 void setup() {
   delay(250);
+  gpio_deep_sleep_hold_dis();
+  gpio_hold_dis(POWER_LATCH);
+  pinMode(POWER_LATCH, OUTPUT);
+  digitalWrite(POWER_LATCH, HIGH);
   Serial.begin(115200);
+  delay(150);
+  Serial.printf("[bookpet] boot reset=%d wake=%d\n",
+                static_cast<int>(esp_reset_reason()),
+                static_cast<int>(esp_sleep_get_wakeup_cause()));
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
   buttons.begin();
   pet.begin();
@@ -489,6 +823,7 @@ void setup() {
   display.begin();
   display.requestResync();
   lastInputMs = millis();
+  lastAmbientMs = lastInputMs;
   render(true);
 }
 
@@ -505,6 +840,43 @@ void loop() {
     delay(300);
     enterDeepSleep();
   }
-  if (millis() - lastInputMs > AUTO_SLEEP_MS) enterDeepSleep();
+
+  const uint32_t now = millis();
+  const uint32_t idleFor = now - lastInputMs;
+  const bool livingAtHome =
+      pet.state().autonomousEnabled && !pet.state().sleeping &&
+      screen == Screen::Home;
+  const bool naturallyTired = pet.state().energy < 25;
+  const uint32_t drowsyAfter =
+      naturallyTired ? DROWSY_AFTER_MS / 2 : DROWSY_AFTER_MS;
+  const uint32_t sleepAfter =
+      naturallyTired ? NATURAL_SLEEP_MS / 2 : NATURAL_SLEEP_MS;
+  if (livingAtHome && !drowsyShown && idleFor >= drowsyAfter) {
+    pet.awakeMoment(true);
+    Serial.println("[bookpet] visible moment: drowsy");
+    drowsyShown = true;
+    lastAmbientMs = now;
+    render();
+  } else if (livingAtHome && !drowsyShown &&
+             now - lastAmbientMs >= AWAKE_MOMENT_MS) {
+    pet.awakeMoment();
+    Serial.printf("[bookpet] visible moment: pose=%u\n",
+                  pet.state().ambientPose);
+    lastAmbientMs = now;
+    render();
+  }
+
+  if (idleFor >= sleepAfter) {
+    if (pet.state().autonomousEnabled) {
+      pet.beginNaturalSleep();
+      Serial.println("[bookpet] natural sleep");
+      screen = Screen::Home;
+      render();
+      delay(1200);
+      enterDreamSleep();
+    } else {
+      enterDeepSleep();
+    }
+  }
   delay(10);
 }
