@@ -213,9 +213,9 @@ The pinned community SDK is also MIT-licensed; see
 
 Book Pet has been developed extensively with OpenAI Codex as a coding,
 research, documentation, and release collaborator under human direction.
-No AI model runs in the released firmware: Byte's apparent thoughts and
-personality come from deterministic offline rules, and no pet data is sent to
-an AI provider.
+No AI model runs in the released firmware: the pets' apparent thoughts and
+personalities come from deterministic offline rules, and no pet data is sent
+to an AI provider.
 
 Read [AI_ASSISTED DEVELOPMENT DISCLOSURE](AI_DISCLOSURE.md) for the full
 breakdown of AI involvement, human oversight, validation, and contribution

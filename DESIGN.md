@@ -49,13 +49,15 @@
 
 ## Pet personality
 
-- **Species:** Byte, an original pixel creature.
+- **Species:** Byte, Mote, and Pip—three original pixel creatures unlocked
+  through reading progress.
 - **Expression:** Pose, ears, eyes, mouth, and two or three emphasis marks.
 - **Thoughts:** Short deterministic lines driven by needs, progress, recent
   actions, and personality. They must never claim to be sentient or online.
-- **Economy:** Play and time uncover Page Bites. Page Bites can be baked into
-  food. Page Catch awards Story, Mystery, Science, and Adventure fragments.
-  Care and play award XP; levels change Byte's growth stage.
+- **Economy:** Page Catch awards Page Bites plus Story, Mystery, Science, and
+  Adventure fragments. Page Bites can be baked into food. Logged pages earn
+  food directly, and finished books unlock toys and pets. Care, play, and
+  reading award XP; levels change the current pet's growth stage.
 - **Memory:** A three-entry diary records the latest meaningful care and play
   moments rather than logging every simulation tick.
 - **Personality:** Curious, Cozy, or Bold emerges from the balance of play,
