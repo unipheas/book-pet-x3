@@ -22,9 +22,14 @@ refresh behavior is designed around the strengths of e-paper.
 
 - Portrait 528×792 interface designed around the X3's physical controls
 - Byte, an original monochrome pixel pet with mood-specific poses
-- Feed, Play, and Rest actions
-- Fullness, joy, and rest meters
+- Feed, Play, Clean, and Rest actions
+- Fullness, joy, rest, and cleanliness meters
 - Page Bite currency, pantry, food inventory, experience, and levels
+- Three-lane Page Catch memory game
+- Story, Mystery, Science, and Adventure fragment collection
+- Curious, Cozy, and Bold personalities shaped by care choices
+- Hatchling, Sprout, and Familiar growth stages
+- Three-entry diary of Byte's recent life
 - Deterministic on-device thoughts that reflect Byte's mood and recent events
 - Menu screens for the pantry, stats, and future selectable pets
 - Persistent local state in ESP32 NVS
@@ -37,7 +42,7 @@ refresh behavior is designed around the strengths of e-paper.
 
 ## Controls
 
-- Front Left/Right: choose **Feed**, **Play**, or **Rest**
+- Front Left/Right: choose **Feed**, **Play**, **Clean**, or **Rest**
 - Front Confirm: perform the selected action or select a menu item
 - Front Back: open the menu or return to the previous screen
 - Side Up/Down: move through menu items
@@ -151,7 +156,7 @@ anything.
 - State: versioned `PetState` blob in ESP32 Preferences/NVS.
 - Power: saves state, sleeps the panel, releases the X3 power latch, then enters
   deep sleep using CrossPoint's proven sequence.
-- Time: version 0.2 tracks active minutes, not real-world time while powered
+- Time: version 0.3 tracks active minutes, not real-world time while powered
   off. RTC-based aging is not implemented.
 
 ## Project layout
