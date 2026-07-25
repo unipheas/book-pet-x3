@@ -4,14 +4,14 @@
 [![Build](https://github.com/unipheas/book-pet-x3/actions/workflows/build.yml/badge.svg)](https://github.com/unipheas/book-pet-x3/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A tiny, standalone e-paper virtual pet for the **XTEINK X3 Developer
+A tiny, standalone portrait e-paper virtual pet for the **XTEINK X3 Developer
 Edition**. Book Pet lives entirely on the device: no phone, Wi-Fi, Bluetooth,
 account, cloud service, or AI connection required.
 
-Feed it, play with it, put it to sleep, and carry it on the back of your phone.
-Its state is saved locally, and its deliberately calm refresh behavior is
-designed around the strengths of e-paper rather than pretending to be a
-high-frame-rate screen.
+Meet Byte, an original 8-bit pixel familiar who eats pages. Feed it, play with
+it, put it to sleep, earn Page Bites, bake food, level up, and carry it on the
+back of your phone. Its state is saved locally, and its deliberately calm
+refresh behavior is designed around the strengths of e-paper.
 
 > [!WARNING]
 > Book Pet replaces the device firmware. It is intended only for the unlocked
@@ -20,12 +20,16 @@ high-frame-rate screen.
 
 ## Features
 
-- One book-shaped monochrome pet
-- Feed, Play, and Sleep actions
+- Portrait 528×792 interface designed around the X3's physical controls
+- Byte, an original monochrome pixel pet with mood-specific poses
+- Feed, Play, and Rest actions
 - Fullness, joy, and rest meters
+- Page Bite currency, pantry, food inventory, experience, and levels
+- Deterministic on-device thoughts that reflect Byte's mood and recent events
+- Menu screens for the pantry, stats, and future selectable pets
 - Persistent local state in ESP32 NVS
 - Automatic sleep after two minutes of inactivity
-- Physical page-button controls across X3 button layouts
+- All six page buttons mapped to navigation and actions
 - Conservative fast refreshes with periodic full cleanup refreshes
 - Complete offline operation
 - Reproducible PlatformIO build
@@ -33,8 +37,10 @@ high-frame-rate screen.
 
 ## Controls
 
-- Any upper/left/back-style page button: choose **Feed**, **Play**, or **Sleep**
-- Any lower/right/confirm-style page button: perform the selected action
+- Front Left/Right: choose **Feed**, **Play**, or **Rest**
+- Front Confirm: perform the selected action or select a menu item
+- Front Back: open the menu or return to the previous screen
+- Side Up/Down: move through menu items
 - Hold power for about 1.2 seconds: save and sleep
 - Two minutes without input: save and sleep
 - Press power to wake
@@ -125,8 +131,9 @@ PlatformIO build. PlatformIO writes them at the correct offsets; using `pio run
 --target upload` is safer than manually choosing offsets.
 
 The binary has been compiler-verified and tested on an XTEINK X3 Developer
-Edition. All page-button routes, Feed, Play, Sleep, persistent state, power-off,
-and power-button wake were exercised on the physical device.
+Edition. The portrait orientation was verified on-device. The underlying
+six-button input routes, persistent state, power-off, and power-button wake
+were verified during the v0.1 hardware bring-up.
 
 ## Recovery and safety
 
@@ -138,12 +145,13 @@ anything.
 
 ## Design notes
 
-- Target: ESP32-C3, 16 MB flash, 792×528 X3 e-paper panel.
+- Target: ESP32-C3, 16 MB flash, 792×528 physical X3 e-paper panel.
+- UI: counter-clockwise rotation into a 528×792 logical portrait canvas.
 - Hardware layer: pinned CrossPoint community SDK display and input libraries.
 - State: versioned `PetState` blob in ESP32 Preferences/NVS.
 - Power: saves state, sleeps the panel, releases the X3 power latch, then enters
   deep sleep using CrossPoint's proven sequence.
-- Time: version 0.1 tracks active minutes, not real-world time while powered
+- Time: version 0.2 tracks active minutes, not real-world time while powered
   off. RTC-based aging is not implemented.
 
 ## Project layout
@@ -158,10 +166,10 @@ platformio.ini   Reproducible ESP32-C3 build configuration
 ## Hardware test record
 
 - Page controls register and route correctly: verified.
-- Feed, Play, and Sleep: verified.
+- Portrait orientation and screen margins: verified.
+- Feed, Play, and power-button Rest: verified on the v0.1 hardware base.
 - Power hold sleeps and power wakes: verified.
 - Wake visibly leaves the Dreaming state: verified.
-- Display orientation and margins: verified.
 - Longer-term ghosting, charging-cycle persistence, and battery-life testing
   remain to be measured during normal use.
 

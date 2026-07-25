@@ -6,8 +6,19 @@
 
 void Canvas::pixel(int x, int y, bool black) {
   if (x < 0 || y < 0 || x >= w || y >= h) return;
-  uint8_t& cell = data[y * stride + x / 8];
-  const uint8_t mask = 0x80 >> (x % 8);
+  int physicalX = x;
+  int physicalY = y;
+  if (orientation == Rotation::Clockwise) {
+    physicalX = physicalW - 1 - y;
+    physicalY = x;
+  } else if (orientation == Rotation::CounterClockwise) {
+    physicalX = y;
+    physicalY = physicalH - 1 - x;
+  }
+  if (physicalX < 0 || physicalY < 0 ||
+      physicalX >= physicalW || physicalY >= physicalH) return;
+  uint8_t& cell = data[physicalY * stride + physicalX / 8];
+  const uint8_t mask = 0x80 >> (physicalX % 8);
   if (black) cell &= ~mask;
   else cell |= mask;
 }
@@ -56,4 +67,3 @@ void Canvas::text(int x, int y, const char* value, uint8_t scale) {
 int Canvas::textWidth(const char* value, uint8_t scale) const {
   return strlen(value) * 6 * scale;
 }
-
