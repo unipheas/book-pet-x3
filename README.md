@@ -169,7 +169,8 @@ platformio.ini   Reproducible ESP32-C3 build configuration
 
 Bug reports, ideas, artwork, documentation, and code are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull-request guidance. Please
-use [SECURITY.md](SECURITY.md) for security-sensitive reports.
+follow our [Code of Conduct](CODE_OF_CONDUCT.md), and use
+[SECURITY.md](SECURITY.md) for security-sensitive reports.
 
 ## License
 
