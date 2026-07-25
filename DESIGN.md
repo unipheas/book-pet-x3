@@ -32,8 +32,8 @@
 - **Top strip (0–64):** Name, level, XP, Page Bites, and food inventory.
 - **Pet room (72–420):** One dominant creature, thought bubble, and a grounded
   environment.
-- **Needs (438–558):** Three compact meters: Full, Joy, Rest.
-- **Action dock (580–680):** Feed, Play, Rest with one strong selection state.
+- **Needs (438–600):** Four compact meters: Full, Joy, Rest, Clean.
+- **Action dock (612–680):** Feed, Play, Clean, Rest with one strong selection state.
 - **Controls (736–792):** Persistent button hints.
 - **Menus:** Full portrait screens, not tiny overlays.
 
@@ -52,7 +52,12 @@
 - **Thoughts:** Short deterministic lines driven by needs, progress, recent
   actions, and personality. They must never claim to be sentient or online.
 - **Economy:** Play and time uncover Page Bites. Page Bites can be baked into
-  food. Care and play award XP; levels unlock future pets and rewards.
+  food. Page Catch awards Story, Mystery, Science, and Adventure fragments.
+  Care and play award XP; levels change Byte's growth stage.
+- **Memory:** A three-entry diary records the latest meaningful care and play
+  moments rather than logging every simulation tick.
+- **Personality:** Curious, Cozy, or Bold emerges from the balance of play,
+  feeding, cleaning, and rest. It changes thoughts without claiming sentience.
 
 ## E-paper motion
 
@@ -69,3 +74,5 @@
 | 2026-07-25 | Original 8-bit creature | Creates a real pet identity without copying Tamagotchi artwork. |
 | 2026-07-25 | Offline thought engine | Personality without accounts, radios, cloud cost, or deceptive AI claims. |
 | 2026-07-25 | Page Bite economy | Gives the pet a book-world metaphor without making the pet itself a book. |
+| 2026-07-25 | Memory-game page hunting | Makes earning pages active, tactile, and feasible on slow e-paper. |
+| 2026-07-25 | Care-shaped personality | Creates apparent inner life using transparent offline rules. |

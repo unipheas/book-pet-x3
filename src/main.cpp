@@ -21,7 +21,16 @@ constexpr gpio_num_t POWER_LATCH = GPIO_NUM_13;
 constexpr uint32_t AUTO_SLEEP_MS = 120'000;
 constexpr uint8_t FULL_REFRESH_EVERY = 12;
 
-enum class Screen : uint8_t { Home, Menu, Pantry, Stats, Pets };
+enum class Screen : uint8_t {
+  Home,
+  Menu,
+  Pantry,
+  Fragments,
+  Diary,
+  Stats,
+  Pets,
+  PageCatch
+};
 
 EInkDisplay display(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_RST, EPD_BUSY);
 InputManager buttons;
@@ -29,6 +38,11 @@ PetEngine pet;
 Screen screen = Screen::Home;
 PetAction selectedAction = PetAction::Feed;
 uint8_t menuIndex = 0;
+uint8_t gamePhase = 0;
+uint8_t playerLane = 1;
+uint8_t targetLane = 1;
+FragmentKind gameFragment = FragmentKind::Story;
+bool gameCaught = false;
 uint32_t lastInputMs = 0;
 uint8_t fastRefreshes = 0;
 
@@ -36,6 +50,7 @@ const char* actionName(PetAction action) {
   switch (action) {
     case PetAction::Feed: return "FEED";
     case PetAction::Play: return "PLAY";
+    case PetAction::Clean: return "CLEAN";
     case PetAction::Rest: return "REST";
   }
   return "";
@@ -47,6 +62,7 @@ const char* moodName(PetMood mood) {
     case PetMood::Hungry: return "HUNGRY";
     case PetMood::Tired: return "DROWSY";
     case PetMood::Lonely: return "LONELY";
+    case PetMood::Dirty: return "MESSY";
     case PetMood::Sleeping: return "DREAMING";
     case PetMood::Content:
     default: return "CONTENT";
@@ -93,8 +109,14 @@ void drawRoom(Canvas& c, const PetState& state, PetMood mood) {
   const char* const* sprite =
       mood == PetMood::Sleeping ? PetSprite::BYTE_SLEEP
       : mood == PetMood::Happy ? PetSprite::BYTE_HAPPY
+      : mood == PetMood::Hungry ? PetSprite::BYTE_HUNGRY
+      : mood == PetMood::Tired ? PetSprite::BYTE_TIRED
+      : mood == PetMood::Dirty ? PetSprite::BYTE_DIRTY
                                : PetSprite::BYTE_IDLE;
-  PetSprite::draw(c, sprite, 168, 180, 8);
+  const uint8_t scale = pet.lifeStage() == LifeStage::Hatchling ? 6
+                        : pet.lifeStage() == LifeStage::Sprout ? 7 : 8;
+  const int spriteSize = 24 * scale;
+  PetSprite::draw(c, sprite, (c.width() - spriteSize) / 2, 188, scale);
 
   if (mood == PetMood::Happy) {
     c.text(76, 208, "*", 4);
@@ -103,6 +125,9 @@ void drawRoom(Canvas& c, const PetState& state, PetMood mood) {
     c.text(398, 270, "?", 5);
   } else if (mood == PetMood::Tired) {
     c.text(392, 216, "z", 5);
+  } else if (mood == PetMood::Dirty) {
+    c.text(84, 238, ".", 5);
+    c.text(406, 294, ".", 4);
   }
 }
 
@@ -119,20 +144,18 @@ void drawHeader(Canvas& c, const PetState& state) {
 }
 
 void drawActionDock(Canvas& c) {
-  const PetAction actions[] = {PetAction::Feed, PetAction::Play, PetAction::Rest};
-  for (int i = 0; i < 3; ++i) {
-    const int x = 22 + i * 164;
+  const PetAction actions[] = {
+      PetAction::Feed, PetAction::Play, PetAction::Clean, PetAction::Rest};
+  for (int i = 0; i < 4; ++i) {
+    const int x = 14 + i * 128;
     const bool selected = actions[i] == selectedAction;
-    c.rect(x, 590, 150, 70, selected);
+    c.rect(x, 612, 116, 60, selected);
     if (selected) {
-      c.rect(x + 7, 597, 136, 56, false);
-      // White knockout behind black text.
-      c.rect(x + 22, 613, 106, 24, false);
-      for (int yy = 608; yy < 643; ++yy)
-        for (int xx = x + 14; xx < x + 136; ++xx) c.pixel(xx, yy, false);
+      for (int yy = 620; yy < 663; ++yy)
+        for (int xx = x + 7; xx < x + 109; ++xx) c.pixel(xx, yy, false);
     }
     const char* label = actionName(actions[i]);
-    c.text(x + (150 - c.textWidth(label, 2)) / 2, 615, label, 2);
+    c.text(x + (116 - c.textWidth(label, 1)) / 2, 636, label, 1);
   }
 }
 
@@ -141,11 +164,12 @@ void drawHome(Canvas& c) {
   const PetMood mood = pet.mood();
   drawHeader(c, state);
   drawRoom(c, state, mood);
-  meter(c, 36, 452, "FULL", state.fullness);
-  meter(c, 36, 492, "JOY", state.happiness);
-  meter(c, 36, 532, "REST", state.energy);
+  meter(c, 36, 444, "FULL", state.fullness);
+  meter(c, 36, 482, "JOY", state.happiness);
+  meter(c, 36, 520, "REST", state.energy);
+  meter(c, 36, 558, "CLEAN", state.cleanliness);
   drawActionDock(c);
-  centeredText(c, 684, moodName(mood), 2);
+  centeredText(c, 692, moodName(mood), 2);
   c.line(22, 722, 506, 722);
   c.text(30, 744, "BACK MENU", 1);
   c.text(206, 744, "<  CHOOSE  >", 1);
@@ -159,19 +183,51 @@ void drawTitle(Canvas& c, const char* title, const char* subtitle) {
 }
 
 void drawMenu(Canvas& c) {
-  static constexpr const char* items[] = {"HOME", "PANTRY", "STATS", "PETS"};
+  static constexpr const char* items[] = {
+      "HOME", "PANTRY", "FRAGMENTS", "DIARY", "STATS", "PETS"};
   drawTitle(c, "PET MENU", "SIDE BUTTONS MOVE  /  OK SELECT");
-  for (int i = 0; i < 4; ++i) {
-    const int y = 140 + i * 112;
-    if (menuIndex == i) c.rect(42, y - 18, 444, 72, true);
+  for (int i = 0; i < 6; ++i) {
+    const int y = 128 + i * 94;
+    if (menuIndex == i) c.rect(42, y - 16, 444, 60, true);
     if (menuIndex == i) {
-      for (int yy = y - 7; yy < y + 34; ++yy)
+      for (int yy = y - 8; yy < y + 34; ++yy)
         for (int xx = 54; xx < 474; ++xx) c.pixel(xx, yy, false);
     }
-    c.text(72, y, items[i], 3);
-    c.text(438, y, menuIndex == i ? ">" : "-", 3);
+    c.text(72, y, items[i], 2);
+    c.text(438, y, menuIndex == i ? ">" : "-", 2);
   }
   c.text(34, 744, "BACK HOME", 1);
+}
+
+void drawFragments(Canvas& c) {
+  const PetState& state = pet.state();
+  static constexpr const char* names[] = {
+      "STORY", "MYSTERY", "SCIENCE", "ADVENTURE"};
+  drawTitle(c, "PAGE FRAGMENTS", "CATCH PAGES TO BUILD A COLLECTION");
+  for (int i = 0; i < 4; ++i) {
+    const int y = 145 + i * 105;
+    c.rect(48, y - 20, 432, 68);
+    c.text(72, y, names[i], 2);
+    char count[16];
+    snprintf(count, sizeof(count), "x %u", state.fragments[i]);
+    c.text(390, y, count, 2);
+  }
+  centeredText(c, 610, "PLAY FROM HOME TO FIND MORE", 1);
+  c.text(34, 744, "BACK MENU", 1);
+}
+
+void drawDiary(Canvas& c) {
+  drawTitle(c, "BYTE'S DIARY", "THE LAST THREE MOMENTS");
+  for (int i = 0; i < 3; ++i) {
+    const int y = 145 + i * 150;
+    c.rect(42, y - 22, 444, 105);
+    char chapter[20];
+    snprintf(chapter, sizeof(chapter), "CHAPTER %u", i + 1);
+    c.text(62, y, chapter, 2);
+    c.text(62, y + 42, pet.diaryLine(i), 1);
+  }
+  centeredText(c, 650, "BYTE REMEMBERS WHAT MATTERS", 1);
+  c.text(34, 744, "BACK MENU", 1);
 }
 
 void drawPantry(Canvas& c) {
@@ -206,24 +262,82 @@ void drawStats(Canvas& c) {
   c.text(62, 315, value, 2);
   snprintf(value, sizeof(value), "PAGE BITES     %u", state.pageBites);
   c.text(62, 370, value, 2);
-  c.rect(54, 455, 420, 145);
-  centeredText(c, 480, "NEXT LEVEL REWARD", 2);
-  centeredText(c, 525, "+2 FOOD  +2 PAGE BITES", 2);
+  const char* trait = pet.personality() == Personality::Bold ? "BOLD"
+                      : pet.personality() == Personality::Cozy ? "COZY"
+                                                               : "CURIOUS";
+  snprintf(value, sizeof(value), "PERSONALITY    %s", trait);
+  c.text(62, 425, value, 2);
+  c.rect(54, 500, 420, 125);
+  centeredText(c, 525, "NEXT LEVEL REWARD", 2);
+  centeredText(c, 570, "+2 FOOD  +2 PAGE BITES", 2);
   c.text(34, 744, "BACK MENU", 1);
 }
 
 void drawPets(Canvas& c) {
-  drawTitle(c, "PETS", "NEW FRIENDS WILL HATCH HERE");
+  const char* stage = pet.lifeStage() == LifeStage::Hatchling ? "HATCHLING"
+                      : pet.lifeStage() == LifeStage::Sprout ? "SPROUT"
+                                                             : "FAMILIAR";
+  drawTitle(c, "BYTE'S GROWTH", "CARE SHAPES WHO BYTE BECOMES");
   c.rect(46, 132, 436, 180);
   PetSprite::draw(c, PetSprite::BYTE_IDLE, 72, 145, 6);
   c.text(250, 176, "BYTE", 3);
-  c.text(250, 220, "PIXEL FAMILIAR", 1);
-  c.text(250, 250, "SELECTED", 2);
+  c.text(250, 220, stage, 2);
+  c.text(250, 258, "CURRENT FORM", 1);
   c.rect(46, 350, 436, 150);
   centeredText(c, 390, "? ? ?", 5);
   centeredText(c, 460, "FUTURE PETS", 2);
   centeredText(c, 570, "LEVEL UP TO GROW THE FAMILY", 1);
   c.text(34, 744, "BACK MENU", 1);
+}
+
+const char* fragmentName(FragmentKind kind) {
+  switch (kind) {
+    case FragmentKind::Story: return "STORY";
+    case FragmentKind::Mystery: return "MYSTERY";
+    case FragmentKind::Science: return "SCIENCE";
+    case FragmentKind::Adventure: return "ADVENTURE";
+  }
+  return "";
+}
+
+void startPageCatch() {
+  const PetState& state = pet.state();
+  targetLane = (state.interactions + state.activeMinutes + state.level) % 3;
+  gameFragment = static_cast<FragmentKind>(
+      (state.interactions + state.level + state.pageBites) % 4);
+  playerLane = 1;
+  gamePhase = 0;
+  gameCaught = false;
+  screen = Screen::PageCatch;
+}
+
+void drawPageCatch(Canvas& c) {
+  drawTitle(c, "CATCH THE PAGE", fragmentName(gameFragment));
+  c.line(176, 145, 176, 610);
+  c.line(352, 145, 352, 610);
+  if (gamePhase == 0) {
+    centeredText(c, 132, "MEMORIZE ITS LANE", 2);
+    const int x = 60 + targetLane * 176;
+    c.rect(x, 235, 56, 76);
+    c.line(x + 8, 247, x + 46, 247);
+    c.line(x + 8, 263, x + 39, 263);
+    c.line(x + 8, 279, x + 46, 279);
+    centeredText(c, 650, "OK: HIDE THE PAGE", 2);
+  } else if (gamePhase == 1) {
+    centeredText(c, 132, "WHERE WAS IT?", 2);
+    const int x = 46 + playerLane * 176;
+    c.text(x, 420, "^", 5);
+    centeredText(c, 650, "<  PICK A LANE  >   OK", 2);
+  } else {
+    centeredText(c, 170, gameCaught ? "CAUGHT!" : "IT ESCAPED!", 4);
+    PetSprite::draw(c, gameCaught ? PetSprite::BYTE_HAPPY
+                                  : PetSprite::BYTE_HUNGRY,
+                    168, 260, 8);
+    centeredText(c, 535,
+                 gameCaught ? "+2 PAGE BITES  +10 XP" : "+2 XP", 2);
+    centeredText(c, 650, "OK: GO HOME", 2);
+  }
+  c.text(34, 744, "BACK HOME", 1);
 }
 
 void render(bool forceFull = false) {
@@ -234,8 +348,11 @@ void render(bool forceFull = false) {
     case Screen::Home: drawHome(canvas); break;
     case Screen::Menu: drawMenu(canvas); break;
     case Screen::Pantry: drawPantry(canvas); break;
+    case Screen::Fragments: drawFragments(canvas); break;
+    case Screen::Diary: drawDiary(canvas); break;
     case Screen::Stats: drawStats(canvas); break;
     case Screen::Pets: drawPets(canvas); break;
+    case Screen::PageCatch: drawPageCatch(canvas); break;
   }
   const bool doFull = forceFull || fastRefreshes >= FULL_REFRESH_EVERY;
   display.displayBuffer(doFull ? EInkDisplay::FULL_REFRESH
@@ -266,6 +383,8 @@ void goBack() {
     screen = Screen::Menu;
   } else if (screen == Screen::Menu) {
     screen = Screen::Home;
+  } else if (screen == Screen::PageCatch) {
+    screen = Screen::Home;
   } else {
     screen = Screen::Menu;
   }
@@ -275,8 +394,10 @@ void selectMenuItem() {
   switch (menuIndex) {
     case 0: screen = Screen::Home; break;
     case 1: screen = Screen::Pantry; break;
-    case 2: screen = Screen::Stats; break;
-    case 3: screen = Screen::Pets; break;
+    case 2: screen = Screen::Fragments; break;
+    case 3: screen = Screen::Diary; break;
+    case 4: screen = Screen::Stats; break;
+    case 5: screen = Screen::Pets; break;
   }
 }
 
@@ -289,16 +410,21 @@ void handleInput() {
   if (screen == Screen::Home) {
     if (buttons.wasPressed(InputManager::BTN_LEFT)) {
       selectedAction = static_cast<PetAction>(
-          (static_cast<uint8_t>(selectedAction) + 2) % 3);
+          (static_cast<uint8_t>(selectedAction) + 3) % 4);
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_RIGHT)) {
       selectedAction = static_cast<PetAction>(
-          (static_cast<uint8_t>(selectedAction) + 1) % 3);
+          (static_cast<uint8_t>(selectedAction) + 1) % 4);
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
-      pet.apply(selectedAction);
+      if (selectedAction == PetAction::Play) {
+        startPageCatch();
+        changed = true;
+      } else {
+        pet.apply(selectedAction);
+      }
       if (selectedAction == PetAction::Rest) {
         render();
         delay(300);
@@ -308,11 +434,11 @@ void handleInput() {
     }
   } else if (screen == Screen::Menu) {
     if (buttons.wasPressed(InputManager::BTN_UP)) {
-      menuIndex = (menuIndex + 3) % 4;
+      menuIndex = (menuIndex + 5) % 6;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-      menuIndex = (menuIndex + 1) % 4;
+      menuIndex = (menuIndex + 1) % 6;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
@@ -323,6 +449,27 @@ void handleInput() {
              buttons.wasPressed(InputManager::BTN_CONFIRM)) {
     pet.buyFood();
     changed = true;
+  } else if (screen == Screen::PageCatch) {
+    if (buttons.wasPressed(InputManager::BTN_LEFT) && gamePhase == 1) {
+      playerLane = (playerLane + 2) % 3;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_RIGHT) && gamePhase == 1) {
+      playerLane = (playerLane + 1) % 3;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (gamePhase == 0) {
+        gamePhase = 1;
+      } else if (gamePhase == 1) {
+        gameCaught = playerLane == targetLane;
+        pet.completePageCatch(gameCaught, gameFragment);
+        gamePhase = 2;
+      } else {
+        screen = Screen::Home;
+      }
+      changed = true;
+    }
   }
   if (changed) {
     lastInputMs = millis();
