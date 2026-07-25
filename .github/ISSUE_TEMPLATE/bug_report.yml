@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible problem with Book Pet
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Book Pet. Do not use this form for security-sensitive reports.
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Hardware
+      options:
+        - XTEINK X3 Developer/overseas edition
+        - Other or unknown
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Flash...
+        2. Press...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, photos, or screenshots
+      description: Remove secrets and personal information before posting.
+
