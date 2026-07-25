@@ -1,0 +1,37 @@
+name: Build firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        run: pip install platformio==6.1.19
+
+      - name: Build
+        run: pio run
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: book-pet-x3-firmware
+          path: |
+            .pio/build/xteink_x3/firmware.bin
+            .pio/build/xteink_x3/bootloader.bin
+            .pio/build/xteink_x3/partitions.bin

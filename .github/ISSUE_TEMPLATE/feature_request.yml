@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an e-paper-friendly improvement
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would this improve?
+      description: Describe the need or experience, not only the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: epaper
+    attributes:
+      label: E-paper and battery impact
+      description: How often would the display refresh, and what keeps this calm and power-efficient?
+
