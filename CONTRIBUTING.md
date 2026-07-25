@@ -48,9 +48,16 @@ successful compiler build is not the same as an on-device test.
   compiler-only.
 - Include screenshots or photos for visible UI changes when practical.
 - Update the README or changelog when behavior changes.
+- Disclose meaningful generative-AI assistance and name the tool used.
+- Review and understand AI-assisted code before submitting it.
+- Do not submit generated artwork or code when its license or origin cannot be
+  established.
 
 By contributing, you agree that your contribution may be distributed under
 this project's MIT License.
+
+See [AI_DISCLOSURE.md](AI_DISCLOSURE.md) for the project's own development
+disclosure and the standard expected from AI-assisted contributions.
 
 ## Design principles
 

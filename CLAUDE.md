@@ -13,3 +13,9 @@ When reviewing UI changes, flag anything that:
 - refreshes the panel for cosmetic animation;
 - hides essential actions behind network access;
 - claims the offline thought engine is sentient or cloud AI.
+
+## AI transparency
+
+Keep `AI_DISCLOSURE.md` accurate when AI tools materially assist development,
+documentation, artwork, testing, flashing, or releases. Never imply that Byte's
+deterministic offline behavior is a hosted or on-device AI model.
