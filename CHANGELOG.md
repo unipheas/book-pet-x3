@@ -2,6 +2,26 @@
 
 All notable changes to Book Pet are documented here.
 
+## [0.3.0] - 2026-07-25
+
+### Added
+
+- Care for Byte with a fourth Clean need and action.
+- Play the three-lane Page Catch memory game to earn Page Bites and XP.
+- Collect Story, Mystery, Science, and Adventure page fragments.
+- Watch Byte develop a Curious, Cozy, or Bold personality from care choices.
+- Grow Byte through Hatchling, Sprout, and Familiar life stages.
+- Read Byte's three-entry diary of recent care, play, and growth moments.
+- See new Hungry, Tired, and Dirty pixel-art poses.
+- Preserve v0.2 progress through an automatic v3 save-data migration.
+
+### Changed
+
+- Page Bites now come from active Page Catch play instead of passive time.
+- Need decay now accumulates correctly across short sessions and only refreshes
+  the e-paper display when a visible value changes.
+- The home screen now fits four needs and four actions in portrait mode.
+
 ## [0.2.0] - 2026-07-25
 
 ### Added
@@ -34,3 +54,4 @@ All notable changes to Book Pet are documented here.
 
 [0.1.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.1.0
 [0.2.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.2.0
+[0.3.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.3.0
