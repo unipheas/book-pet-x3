@@ -1,0 +1,5 @@
+[submodule "community-sdk"]
+	path = community-sdk
+	url = https://github.com/crosspoint-reader/community-sdk.git
+	branch = master
+
