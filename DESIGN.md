@@ -79,7 +79,8 @@
   replayable reward transaction keeps the book ledger and pet state consistent
   across an interrupted save. Per-book records live as atomic root-level files
   in the X3's dedicated internal filesystem rather than consuming one NVS key
-  per book.
+  per book. Checksums and backup copies make damaged reading history visible
+  and fail closed instead of silently allowing rewards to be earned again.
 - **Pet family:** Byte is joined by Mote and Pip, each with an original
   one-bit silhouette and a book-reading unlock path.
 
@@ -122,3 +123,5 @@
 | 2026-07-26 | Retire fragments | A single Page Bite economy is easier to understand; legacy fragments migrate into Page Bites. |
 | 2026-07-26 | Content-based book identity | Renames preserve progress while replaced EPUBs cannot reuse old page caches or rewards. |
 | 2026-07-26 | Replayable reading rewards | A pending transaction is recorded before pet state changes so interrupted saves can finish without loss or duplication. |
+| 2026-07-26 | Tolerant library boundary | Hidden metadata and invalid EPUB containers are skipped individually so one bad file cannot hide the rest of a child's library. |
+| 2026-07-26 | Fail-closed reading history | Checksummed records, backup recovery, and first-initialization-only formatting protect earned progress from silent reset. |

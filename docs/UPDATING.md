@@ -1,8 +1,9 @@
 # Updating and recovery
 
 Book Pet supports four installation and recovery paths. Pet progress lives in
-the NVS data partition, separate from both firmware slots. Normal updates and
-rollbacks do not erase it.
+NVS and per-book reading progress lives in the internal SPIFFS partition,
+separate from both firmware slots. Normal updates and rollbacks do not erase
+either one.
 
 ## First install: web installer
 
@@ -23,6 +24,11 @@ The first install writes one merged ESP32-C3 image at flash offset `0x0`.
 It contains the bootloader, OTA partition table, OTA selector, and application.
 The browser offers the erase choice because replacing unrelated firmware while
 preserving an unknown partition layout is unsafe.
+
+A clean install with erase selected resets pet state, inventory, unlocks,
+reading positions, and earned-page records. It does not erase the removable SD
+card. If Book Pet is already installed and working, use an update path below
+instead of a clean install.
 
 iOS browsers do not expose the USB Web Serial connection. Use a desktop or
 laptop for the first install.
@@ -79,7 +85,8 @@ Book Pet selects the other bootable OTA slot and restarts. This option appears
 as unavailable until at least one OTA update has populated both slots.
 
 Rollback changes firmware only. It does not rewind pet progress or erase NVS.
-New firmware must keep persisted pet-state migrations backward compatible.
+It also leaves SPIFFS reading progress in place. New firmware must keep both
+pet-state and reading-progress migrations backward compatible.
 
 ## Hold-at-boot recovery
 

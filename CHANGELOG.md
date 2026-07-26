@@ -4,15 +4,18 @@ All notable changes to Book Pet are documented here.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-26
+
 ### Added
 
-- Added a complete offline EPUB library and reader powered by FreeInkBook.
-- Added SD-backed EPUB indexing, chapter pagination, layout caching, resume
-  positions, DRM detection, and friendly memory/error states for the X3.
-- Added durable per-book progress files keyed by EPUB contents in the X3's
-  dedicated internal filesystem, without expanding or risking the pet save.
-- Added one-time reading rewards based on stable EPUB page locations, with a
-  replayable save journal that prevents loss or duplication after interruption.
+- Read DRM-free EPUB books directly on the X3 with a complete offline library
+  and portrait reader powered by FreeInkBook.
+- Resume every book where you left off, with SD-backed indexing, chapter
+  pagination, layout caching, image support, and clear recovery messages.
+- Keep durable progress for each book using content-based identity, so renaming
+  an EPUB preserves its place while replacing the file starts a separate record.
+- Earn each page reward once through an interruption-safe journal that keeps
+  reading progress and pet rewards consistent across restarts.
 
 ### Changed
 
@@ -27,12 +30,37 @@ All notable changes to Book Pet are documented here.
 - Legacy Story, Mystery, Science, and Adventure fragments migrate into Page
   Bites and no longer appear in the interface.
 
+### Fixed
+
+- Ignore hidden macOS AppleDouble files such as `._Book.epub` so copying books
+  from a Mac cannot make a valid SD library report an invalid EPUB.
+- Skip malformed or unsupported EPUB files individually so one bad file cannot
+  block valid books or create an unsafe shared cache identity.
+- Mount and, when necessary, initialize the dedicated reading-progress
+  filesystem correctly after a new partition layout is installed, then fail
+  closed instead of formatting it if a later mount fails.
+- Checksum per-book progress records and recover from their backup copies,
+  preventing damaged high-water marks from silently resetting rewards.
+- Rebuild a damaged EPUB index once before asking the reader to clear its SD
+  cache.
+- Preserve the previous Continue Reading selection in memory when a progress
+  save fails, allowing a later retry to repair the journal instead of silently
+  losing the current-book pointer.
+- Surface progress-save failures during book open, Back, page movement, manual
+  sleep, and inactivity sleep instead of silently leaving an older position.
+- Show a general **Library Not Ready** message for library and EPUB errors
+  instead of incorrectly claiming every scan failure means the SD card is
+  missing.
+
 ### Verified
 
 - Built the normal X3 and signature-enforcing release firmware with FreeInkBook
   in its ESP32-C3 small-memory profile.
 - Passed FreeInkBook's 36,755-check host suite, including 1,700-chapter EPUB
   catalog and small-memory pagination tests.
+- On X3 hardware, scanned a FAT32 card prepared on macOS, ignored its hidden
+  metadata file, opened the real EPUB, turned a page, returned to the library,
+  and resumed at the saved location.
 
 ## [0.5.0] - 2026-07-25
 
@@ -176,4 +204,5 @@ All notable changes to Book Pet are documented here.
 [0.3.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.3.0
 [0.4.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.4.0
 [0.5.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.5.0
-[Unreleased]: https://github.com/unipheas/book-pet-x3/compare/v0.5.0...HEAD
+[1.0.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v1.0.0
+[Unreleased]: https://github.com/unipheas/book-pet-x3/compare/v1.0.0...HEAD

@@ -59,6 +59,6 @@ for bypassing manufacturer locks are outside this project's support scope.
 The release signature authenticates the firmware bytes, not a monotonic version
 counter. Local and SD recovery intentionally allow an older, correctly signed
 Book Pet release to be installed. The online path only offers a newer manifest
-version over HTTPS, but the v0.5 manifest is not separately signed. A future
+version over HTTPS, but the stable manifest is not separately signed. A future
 package format may bind product and version metadata into the signature for
 stronger replay protection.

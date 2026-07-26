@@ -20,6 +20,23 @@ itself. Everything stays local.
 > XTEINK X3 Developer/overseas edition. Do not flash it on an X4 or a
 > USB-locked/restricted-market X3. Back up anything you care about first.
 
+## Start here
+
+For a first install:
+
+1. Confirm the device is an unlocked XTEINK X3 Developer/overseas edition.
+2. Open the [Book Pet web installer](https://unipheas.github.io/book-pet-x3/)
+   on a desktop Chromium-based browser.
+3. Connect and wake the X3 with its magnetic pogo-pin USB cable.
+4. Choose **Install Book Pet** and keep the cable attached through the first
+   full e-paper refresh.
+5. To read, put DRM-free `.epub` files directly in `/BOOKS` on a FAT32 or exFAT
+   microSD card.
+
+Already running Book Pet? Open **My Pet → Pet Settings → Updates** to update
+from the SD card, a phone, or the official online release without performing a
+new factory install.
+
 ## Features
 
 - Portrait 528×792 interface designed around the X3's physical controls
@@ -80,14 +97,38 @@ animation rather than video: the pet changes pose and location every several
 seconds, then uses low-power light sleep between 15-minute dream moments. After
 two dream moments, the pet wakes itself and resumes its visible life.
 
+## Menu map
+
+```text
+Home
+├── My Pet
+│   ├── Pet Nook
+│   │   ├── Pantry
+│   │   ├── Toy Box
+│   │   └── Diary
+│   ├── Page Catch
+│   └── Pet Settings
+│       ├── Pet Life
+│       ├── Stats
+│       ├── Choose Pet
+│       └── Updates
+└── Books
+    ├── Continue Reading
+    ├── Library
+    └── Reading Rewards
+```
+
 ## Read EPUB books
 
 1. Format a microSD card as FAT32 or exFAT.
 2. Create a folder named `BOOKS` at the top of the card.
-3. Copy DRM-free `.epub` files into `/BOOKS`.
+3. Copy up to 24 DRM-free `.epub` files directly into `/BOOKS`.
 4. Insert the card and open **Menu → Books → Library**.
 5. Choose a book. The first open builds an SD cache; later opens and page turns
    reuse it.
+
+The library is sorted by filename. Subfolders and hidden files are not scanned;
+macOS metadata files such as `._Book.epub` are ignored automatically.
 
 Book Pet keeps a separate progress record for every book you open. Books are
 identified by their contents, so renaming an EPUB keeps its place while
@@ -97,7 +138,7 @@ or returning to an earlier page does not duplicate rewards. DRM-protected EPUBs
 cannot be opened.
 
 See [Reading books](docs/BOOKS.md) for controls, rewards, supported content,
-and troubleshooting.
+storage behavior, known limits, and troubleshooting.
 
 ## Install a release
 
@@ -199,7 +240,22 @@ the warranty. Do not flash an X4 or a USB-locked/restricted-market device.
    ```
 
 Do not disconnect power during erase/write. The first boot performs a full
-e-paper refresh and creates a fresh pet.
+e-paper refresh. Compatible Book Pet state is preserved unless internal flash
+was explicitly erased.
+
+## What is stored where
+
+| Data | Location | Network required | Preserved by normal updates |
+|---|---|---:|---:|
+| Pet, inventory, levels, unlocks | Internal NVS | No | Yes |
+| Resume positions and earned-page records | Internal SPIFFS | No | Yes |
+| EPUB files | SD card `/BOOKS` | No | Yes |
+| Rebuildable EPUB indexes and page caches | SD card `/BOOKPET/CACHE` | No | Yes |
+| Current and previous firmware | Internal OTA slots | Only for optional online update | One slot is updated |
+
+Normal play never enables Wi-Fi. The local update portal and official online
+check run only when selected from Updates. Book Pet has no account, analytics,
+telemetry, ad service, cloud save, or AI connection.
 
 ## Prebuilt binary
 
@@ -245,13 +301,15 @@ that the computer sees the X3 as a serial device before erasing anything.
 ## Project layout
 
 ```text
-src/             Pet state, controls, rendering, and firmware entry point
-docs/BOOKS.md    EPUB setup, controls, rewards, and troubleshooting
-firmware/        Verified release binaries and checksums
-freeink-sdk/     Pinned multi-device e-paper SDK Git submodule
-site/            One-click browser installer
-scripts/         Signed release packaging
-platformio.ini   Reproducible ESP32-C3 build configuration
+src/               Pet, reader, progress, controls, UI, updates, and firmware
+docs/BOOKS.md      EPUB setup, controls, rewards, limits, and troubleshooting
+docs/UPDATING.md   First install, OTA, SD update, rollback, and recovery
+docs/RELEASING.md  Protected signing and maintainer release process
+firmware/          Verified release binaries and checksums
+freeink-sdk/       Pinned display, hardware, UI, and EPUB SDK submodule
+site/              One-click browser installer
+scripts/           Validation, signing, and release packaging
+platformio.ini     Reproducible ESP32-C3 build configuration
 ```
 
 ## Hardware test record
@@ -272,6 +330,9 @@ platformio.ini   Reproducible ESP32-C3 build configuration
   changing the running firmware.
 - Local browser upload, inactive-slot boot confirmation, previous-slot restore,
   and hold-Back recovery were verified on X3 hardware.
+- v1.0 reader flow: FAT32 SD scan, macOS hidden-file filtering, EPUB open and
+  indexing, page turn, return to Library, and saved-position resume were
+  verified on X3 hardware.
 - The 15-minute timer-driven dream/self-wake cycle remains to be rechecked on
   FreeInk; it was verified on the preceding v0.4 hardware layer.
 - Longer-term ghosting, charging-cycle persistence, and battery-life testing
@@ -285,6 +346,15 @@ follow our [Code of Conduct](CODE_OF_CONDUCT.md), and use
 [SECURITY.md](SECURITY.md) for security-sensitive reports.
 Maintainers can follow the [release checklist](docs/RELEASING.md) for signed
 builds.
+
+Detailed project references:
+
+- [Reading books](docs/BOOKS.md)
+- [Updating and recovery](docs/UPDATING.md)
+- [Architecture](ARCHITECTURE.md)
+- [Testing](TESTING.md)
+- [Design system](DESIGN.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## License
 
@@ -303,7 +373,7 @@ No AI model runs in the released firmware: the pets' apparent thoughts and
 personalities come from deterministic offline rules, and no pet data is sent
 to an AI provider.
 
-Read [AI_ASSISTED DEVELOPMENT DISCLOSURE](AI_DISCLOSURE.md) for the full
+Read the [AI-assisted development disclosure](AI_DISCLOSURE.md) for the full
 breakdown of AI involvement, human oversight, validation, and contribution
 expectations.
 

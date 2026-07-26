@@ -25,8 +25,9 @@ Thanks for helping make a tiny e-paper pet more delightful.
 3. Build the firmware:
 
    ```sh
-   pio run
    python3 scripts/validate_project.py
+   freeink-sdk/libs/book/FreeInkBook/test/host/run.sh
+   pio run -e xteink_x3
    ```
 
 4. If you have an unlocked XTEINK X3 Developer Edition, connect it with the
@@ -39,14 +40,37 @@ Thanks for helping make a tiny e-paper pet more delightful.
 Never test unverified firmware on a locked/restricted-market device. A
 successful compiler build is not the same as an on-device test.
 
+See [TESTING.md](TESTING.md) for the complete test layers, reader fixture
+coverage, hardware checklists, and honest verification language.
+
+## Reader contributions
+
+Reader work must preserve the storage boundaries described in
+[ARCHITECTURE.md](ARCHITECTURE.md):
+
+- EPUBs belong in SD `/BOOKS`;
+- rebuildable indexes belong in SD `/BOOKPET/CACHE`;
+- per-book progress belongs in internal SPIFFS;
+- pet state and the pending reward journal belong in NVS.
+
+Do not key progress by filename, grant rewards from manual page counts, or
+advance a reward before both sides of the replayable transaction can recover.
+Do not auto-format an already initialized progress partition after a mount
+failure, accept a damaged progress record as a new book, or let one invalid
+EPUB block valid library entries. Add pure compile-time or host coverage for
+new file filters and reader rules. Use original, public-domain, or
+redistributable EPUB fixtures only.
+
 ## Pull requests
 
 - Create a focused branch from `main`.
 - Keep unrelated changes in separate pull requests.
-- Run `pio run` and `python3 scripts/validate_project.py` before opening the
-  pull request.
+- Run the invariant validator, FreeInkBook host suite, and developer firmware
+  build before opening the pull request.
 - Changes to installation, recovery, or firmware trust must also build
   `pio run -e xteink_x3_release` and be physically tested on an X3.
+- Reader, persistence, reward, display, button, or sleep changes should be
+  physically tested using the relevant checklist in `TESTING.md`.
 - Explain the user-visible behavior and e-paper refresh impact.
 - Say exactly which hardware was tested, or clearly mark the change as
   compiler-only.
@@ -71,6 +95,18 @@ disclosure and the standard expected from AI-assisted contributions.
 - Honest verification: distinguish compilation, emulation, and physical-device
   testing.
 - Small and understandable: keep the pet engine approachable for learners.
+
+## Documentation
+
+Update the document closest to the behavior you changed:
+
+- `README.md` for user-facing capabilities and the normal path;
+- `docs/BOOKS.md` for library, EPUB, progress, and reward behavior;
+- `docs/UPDATING.md` for install, OTA, recovery, or rollback;
+- `ARCHITECTURE.md` for storage boundaries and cross-component flows;
+- `DESIGN.md` for intentional visual or interaction decisions;
+- `TESTING.md` for new verification commands or hardware checks;
+- `CHANGELOG.md` for release-visible changes.
 
 ## Community expectations
 
