@@ -121,6 +121,7 @@ uint32_t lastAmbientMs = 0;
 uint8_t fastRefreshes = 0;
 
 void render(bool forceFull = false);
+void setProgressSaveError();
 void drawWrappedCentered(Canvas& c, int y, const char* text, uint8_t scale,
                          size_t maxChars, int lineHeight,
                          uint8_t maxLines);
@@ -1069,8 +1070,12 @@ void goBack() {
     bookReader.close();
     screen = Screen::Library;
   } else if (screen == Screen::Reader) {
-    readingProgress.savePosition(bookReader.bookId(), bookReader.spine(),
-                                 bookReader.charStart());
+    if (!readingProgress.savePosition(
+            bookReader.bookId(), bookReader.spine(),
+            bookReader.charStart())) {
+      setProgressSaveError();
+      return;
+    }
     bookReader.close();
     screen = Screen::Library;
   } else if (screen == Screen::PageCatch) {
@@ -1149,7 +1154,7 @@ bool scanLibrary() {
   showReaderStatus("CHECKING LIBRARY",
                    "Checking EPUB contents in /BOOKS. A large library may take a moment.");
   if (!bookReader.scan()) {
-    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "SD CARD NEEDED");
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "LIBRARY NOT READY");
     snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
              bookReader.error());
     render();
@@ -1178,7 +1183,12 @@ bool openLibraryBook(uint8_t index) {
   const uint64_t id = bookReader.bookIdAt(index);
   uint16_t resumeSpine = 0;
   uint32_t resumeChar = 0;
-  readingProgress.resume(id, &resumeSpine, &resumeChar);
+  if (!readingProgress.resume(id, &resumeSpine, &resumeChar) &&
+      readingProgress.error()[0]) {
+    setProgressSaveError();
+    render();
+    return false;
+  }
   showReaderStatus("OPENING BOOK",
                    "Indexing the EPUB and preparing your saved page");
   uint32_t buildBytes = 0;
@@ -1202,8 +1212,14 @@ bool openLibraryBook(uint8_t index) {
     render();
     return false;
   }
-  readingProgress.savePosition(bookReader.bookId(), bookReader.spine(),
-                               bookReader.charStart());
+  if (!readingProgress.savePosition(
+          bookReader.bookId(), bookReader.spine(),
+          bookReader.charStart())) {
+    setProgressSaveError();
+    bookReader.close();
+    render();
+    return false;
+  }
   pet.startReadingSession();
   if (awardReadingPosition(false) == ReadingAwardResult::SaveFailed) {
     setProgressSaveError();
@@ -1388,8 +1404,11 @@ void handleInput() {
         buttons.wasPressed(InputManager::BTN_CONFIRM);
     if (previous) {
       if (turnReaderPage(false)) {
-        readingProgress.savePosition(bookReader.bookId(), bookReader.spine(),
-                                     bookReader.charStart());
+        if (!readingProgress.savePosition(
+                bookReader.bookId(), bookReader.spine(),
+                bookReader.charStart())) {
+          setProgressSaveError();
+        }
         changed = true;
       } else if (screen == Screen::ReaderStatus) {
         changed = true;
@@ -1604,9 +1623,16 @@ void loop() {
 
   if (buttons.isPressed(InputManager::BTN_POWER) &&
       buttons.getPowerButtonHeldTime() > 1200) {
-    if (screen == Screen::Reader && bookReader.isOpen()) {
-      readingProgress.savePosition(bookReader.bookId(), bookReader.spine(),
-                                   bookReader.charStart());
+    if (bookReader.isOpen()) {
+      if (!readingProgress.savePosition(
+              bookReader.bookId(), bookReader.spine(),
+              bookReader.charStart())) {
+        setProgressSaveError();
+        render();
+        freeink::PowerManager::waitForPowerButtonRelease();
+        buttons.update();
+        return;
+      }
       bookReader.close();
     }
     pet.apply(PetAction::Rest);
@@ -1642,11 +1668,17 @@ void loop() {
   }
 
   const uint32_t effectiveSleepAfter =
-      screen == Screen::Reader ? 15 * 60'000UL : sleepAfter;
+      bookReader.isOpen() ? 15 * 60'000UL : sleepAfter;
   if (idleFor >= effectiveSleepAfter) {
-    if (screen == Screen::Reader && bookReader.isOpen()) {
-      readingProgress.savePosition(bookReader.bookId(), bookReader.spine(),
-                                   bookReader.charStart());
+    if (bookReader.isOpen()) {
+      if (!readingProgress.savePosition(
+              bookReader.bookId(), bookReader.spine(),
+              bookReader.charStart())) {
+        setProgressSaveError();
+        lastInputMs = now;
+        render();
+        return;
+      }
       bookReader.close();
     }
     if (pet.state().autonomousEnabled) {

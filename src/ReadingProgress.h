@@ -21,7 +21,7 @@ static_assert(isForwardReadingPosition(true, 2, 50, 2, 51));
 enum class ReadingRewardKind : uint8_t { None, Page, Finish };
 
 struct BookProgress {
-  uint32_t version = 1;
+  uint32_t version = 2;
   uint64_t bookId = 0;
   uint32_t charStart = 0;
   uint32_t furthestChar = 0;
@@ -29,9 +29,45 @@ struct BookProgress {
   uint16_t furthestSpine = 0;
   bool hasRewardedPage = false;
   bool finished = false;
-  uint8_t reserved[2] = {};
+  uint16_t checksum = 0;
 };
 static_assert(sizeof(BookProgress) == 32);
+
+constexpr uint32_t mixProgressChecksum(uint32_t hash, uint64_t value,
+                                       uint8_t bytes) {
+  for (uint8_t i = 0; i < bytes; ++i) {
+    hash ^= static_cast<uint8_t>(value >> (i * 8));
+    hash *= 16777619U;
+  }
+  return hash;
+}
+
+constexpr uint16_t bookProgressChecksum(const BookProgress& book) {
+  uint32_t hash = 2166136261U;
+  hash = mixProgressChecksum(hash, book.version, sizeof(book.version));
+  hash = mixProgressChecksum(hash, book.bookId, sizeof(book.bookId));
+  hash = mixProgressChecksum(hash, book.charStart, sizeof(book.charStart));
+  hash =
+      mixProgressChecksum(hash, book.furthestChar, sizeof(book.furthestChar));
+  hash = mixProgressChecksum(hash, book.spine, sizeof(book.spine));
+  hash =
+      mixProgressChecksum(hash, book.furthestSpine, sizeof(book.furthestSpine));
+  hash = mixProgressChecksum(hash, book.hasRewardedPage ? 1 : 0, 1);
+  hash = mixProgressChecksum(hash, book.finished ? 1 : 0, 1);
+  const uint16_t folded =
+      static_cast<uint16_t>((hash >> 16) ^ (hash & 0xFFFFU));
+  return folded == 0 ? 1 : folded;
+}
+
+constexpr BookProgress kChecksumExample{};
+static_assert(bookProgressChecksum(kChecksumExample) != 0);
+constexpr BookProgress checksumExampleAt(uint32_t charStart) {
+  BookProgress book;
+  book.charStart = charStart;
+  return book;
+}
+static_assert(bookProgressChecksum(checksumExampleAt(1)) !=
+              bookProgressChecksum(checksumExampleAt(2)));
 
 struct ReadingProgressState {
   uint32_t version = 3;

@@ -1,4 +1,5 @@
 #include "BookReader.h"
+#include "ReaderFileFilter.h"
 
 #include <layout/ChapterLayout.h>
 #include <render/PageRenderer.h>
@@ -162,11 +163,7 @@ bool BookReader::mount() {
 }
 
 bool BookReader::isEpub(const char* name) {
-  if (!name) return false;
-  const size_t length = strlen(name);
-  if (length < 5) return false;
-  const char* ext = name + length - 5;
-  return strcasecmp(ext, ".epub") == 0;
+  return isReadableEpubName(name);
 }
 
 const char* BookReader::displayName(const char* path) {
@@ -191,6 +188,8 @@ bool BookReader::scan() {
     setError("The /BOOKS folder could not be read");
     return false;
   }
+  uint16_t epubCandidates = 0;
+  uint16_t skippedEpubs = 0;
   while (bookCount_ < kMaxBooks) {
     FsFile file = directory.openNextFile();
     if (!file) break;
@@ -202,18 +201,44 @@ bool BookReader::scan() {
     file.getName(name, sizeof(name));
     file.close();
     if (!isEpub(name)) continue;
+    epubCandidates++;
     const int needed =
         snprintf(bookPaths_[bookCount_], sizeof(bookPaths_[bookCount_]),
                  "%s/%s", kBooksDirectory, name);
     if (needed <= 0 ||
         static_cast<size_t>(needed) >= sizeof(bookPaths_[bookCount_])) {
-      directory.close();
-      setError("An EPUB filename is too long");
-      return false;
+      skippedEpubs++;
+      Serial.printf("[bookpet] reader: skipped long EPUB filename: %s\n",
+                    name);
+      continue;
     }
+    SdBookSource fingerprintSource;
+    if (!fingerprintSource.open(bookPaths_[bookCount_])) {
+      skippedEpubs++;
+      Serial.printf("[bookpet] reader: skipped unreadable EPUB: %s\n",
+                    bookPaths_[bookCount_]);
+      continue;
+    }
+    const uint64_t bookId = hashContainer(fingerprintSource);
+    fingerprintSource.close();
+    if (bookId == 0) {
+      skippedEpubs++;
+      Serial.printf("[bookpet] reader: skipped invalid EPUB: %s\n",
+                    bookPaths_[bookCount_]);
+      continue;
+    }
+    bookIds_[bookCount_] = bookId;
     bookCount_++;
   }
   directory.close();
+  if (epubCandidates > 0 && bookCount_ == 0) {
+    setError("No readable EPUB files were found");
+    return false;
+  }
+  if (skippedEpubs > 0) {
+    Serial.printf("[bookpet] reader: skipped %u invalid EPUB file(s)\n",
+                  static_cast<unsigned>(skippedEpubs));
+  }
   for (uint8_t i = 0; i < bookCount_; ++i) {
     for (uint8_t j = i + 1; j < bookCount_; ++j) {
       if (strcasecmp(bookPaths_[i], bookPaths_[j]) <= 0) continue;
@@ -221,19 +246,9 @@ bool BookReader::scan() {
       memcpy(swap, bookPaths_[i], sizeof(swap));
       memcpy(bookPaths_[i], bookPaths_[j], sizeof(bookPaths_[i]));
       memcpy(bookPaths_[j], swap, sizeof(bookPaths_[j]));
-    }
-  }
-  for (uint8_t i = 0; i < bookCount_; ++i) {
-    SdBookSource fingerprintSource;
-    if (!fingerprintSource.open(bookPaths_[i])) {
-      setError("An EPUB disappeared while scanning");
-      return false;
-    }
-    bookIds_[i] = hashContainer(fingerprintSource);
-    fingerprintSource.close();
-    if (bookIds_[i] == 0) {
-      setError("An EPUB could not be identified");
-      return false;
+      const uint64_t swapId = bookIds_[i];
+      bookIds_[i] = bookIds_[j];
+      bookIds_[j] = swapId;
     }
   }
   return true;
@@ -248,9 +263,12 @@ uint64_t BookReader::hashContainer(BookSource& source) {
   uint32_t directoryOffset = 0;
   uint32_t directorySize = 0;
   uint16_t entryCount = 0;
-  if (ZipCatalog::locateCentralDirectory(
-          source, &directoryOffset, &directorySize,
-          &entryCount) != BookStatus::Ok) {
+  const BookStatus status = ZipCatalog::locateCentralDirectory(
+      source, &directoryOffset, &directorySize, &entryCount);
+  if (status != BookStatus::Ok) {
+    Serial.printf("[bookpet] reader: EPUB probe=%s size=%llu\n",
+                  bookStatusName(status),
+                  static_cast<unsigned long long>(source.size()));
     return 0;
   }
   uint64_t hash = 1469598103934665603ULL;
@@ -323,6 +341,7 @@ bool BookReader::prepareCatalog() {
   }
   cache_.setDirectory(cacheDirectory);
 
+  bool catalogBuilt = false;
   auto buildCatalog = [&]() -> bool {
     void* buildBuffer = nullptr;
     void* parseBuffer = nullptr;
@@ -352,6 +371,7 @@ bool BookReader::prepareCatalog() {
                    : "This EPUB could not be indexed");
       return false;
     }
+    catalogBuilt = true;
     return true;
   };
 
@@ -380,7 +400,7 @@ bool BookReader::prepareCatalog() {
   uint8_t fingerprintScratch[4096];
   Arena scratch(fingerprintScratch, sizeof(fingerprintScratch));
   status = catalog_.open(source_, cache_, catalogArena_, scratch);
-  if (status == BookStatus::Stale) {
+  if (status != BookStatus::Ok && !catalogBuilt) {
     releaseCatalog();
     cache_.remove(BookCatalog::kCatalogName);
     if (!buildCatalog() ||

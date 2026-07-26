@@ -272,16 +272,41 @@ def check_reader_invariants() -> None:
     if (
         "pendingTransaction" not in progress
         or "completeReadingTransaction" not in main
+        or "const ReadingProgressState before = state_;" not in progress
+        or "state_.currentBookId = previousCurrentBookId;" not in progress
     ):
-        raise SystemExit("Reading rewards must remain interruption-safe")
+        raise SystemExit(
+            "Reading rewards and retryable progress must remain interruption-safe"
+        )
     if (
-        "SPIFFS.begin" not in progress
+        "SPIFFS.begin(!storageInitialized)" not in progress
+        or 'kStorageInitializedKey[] = "rfs_init"' not in progress
         or 'snprintf(out, cap, "/r%c%s"' not in progress
         or "SPIFFS.mkdir" in progress
     ):
         raise SystemExit(
-            "Per-book progress must use root-level files on flat SPIFFS"
+            "Per-book progress must use flat SPIFFS and fail closed after initialization"
         )
+    if (
+        "bookProgressChecksum" not in progress
+        or "Reading progress record is damaged" not in progress
+    ):
+        raise SystemExit("Per-book progress records must detect corruption")
+    file_filter = (ROOT / "src" / "ReaderFileFilter.h").read_text(
+        encoding="utf-8"
+    )
+    if (
+        "name[0] == '.'" not in file_filter
+        or 'isReadableEpubName("._The Little Prince.epub")' not in file_filter
+    ):
+        raise SystemExit(
+            "Library scanning must ignore macOS AppleDouble EPUB metadata"
+        )
+    if (
+        "skipped invalid EPUB" not in reader
+        or "No readable EPUB files were found" not in reader
+    ):
+        raise SystemExit("A bad EPUB must not poison the rest of the library")
     if "last eight" in docs.lower() or "up to eight" in docs.lower():
         raise SystemExit("Reader documentation still describes the old LRU")
     if "FreeInkBook/test/host/run.sh" not in workflow:

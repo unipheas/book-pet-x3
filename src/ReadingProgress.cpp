@@ -7,6 +7,7 @@ namespace bookpet {
 namespace {
 constexpr char kNamespace[] = "bookpet";
 constexpr char kStateKey[] = "reading";
+constexpr char kStorageInitializedKey[] = "rfs_init";
 }
 
 void ReadingProgress::keyFor(uint64_t bookId, char* out, size_t cap) {
@@ -36,20 +37,46 @@ void ReadingProgress::setError(const char* message) const {
 
 bool ReadingProgress::begin() {
   clearError();
-  storageReady_ = SPIFFS.begin(false);
-  if (!storageReady_) storageReady_ = SPIFFS.begin(true);
-  if (!storageReady_) {
-    storageReady_ = false;
-    setError("Reading storage could not be opened");
-  }
   Preferences prefs;
-  prefs.begin(kNamespace, true);
+  if (!prefs.begin(kNamespace, false)) {
+    setError("Reading journal could not be opened");
+    return false;
+  }
+  const bool storageInitialized =
+      prefs.getBool(kStorageInitializedKey, false);
   if (prefs.getBytesLength(kStateKey) == sizeof(state_)) {
     ReadingProgressState saved;
     prefs.getBytes(kStateKey, &saved, sizeof(saved));
     if (saved.version == 3) state_ = saved;
   }
   prefs.end();
+
+  // A brand-new Book Pet install may contain an unformatted SPIFFS partition.
+  // Once the first successful mount is recorded in NVS, later mount failures
+  // fail closed instead of erasing reading history.
+  storageReady_ = SPIFFS.begin(!storageInitialized);
+  if (!storageReady_) {
+    storageReady_ = false;
+    setError("Reading storage could not be opened");
+  } else {
+    if (!storageInitialized) {
+      Preferences marker;
+      const bool markerOpened = marker.begin(kNamespace, false);
+      const bool marked =
+          markerOpened &&
+          marker.putBool(kStorageInitializedKey, true) == sizeof(bool);
+      if (markerOpened) marker.end();
+      if (!marked) {
+        SPIFFS.end();
+        storageReady_ = false;
+        setError("Reading storage could not be initialized safely");
+        return false;
+      }
+    }
+    Serial.printf("[bookpet] progress: storage ready total=%u used=%u\n",
+                  static_cast<unsigned>(SPIFFS.totalBytes()),
+                  static_cast<unsigned>(SPIFFS.usedBytes()));
+  }
   return storageReady_;
 }
 
@@ -61,26 +88,44 @@ bool ReadingProgress::loadBook(uint64_t bookId, BookProgress* out) const {
   char backup[32] = {};
   pathFor(bookId, 'p', target, sizeof(target));
   pathFor(bookId, 'b', backup, sizeof(backup));
-  auto loadPath = [&](const char* path) -> bool {
-    if (!SPIFFS.exists(path)) return false;
+  enum class LoadResult : uint8_t { Missing, Valid, Invalid };
+  auto loadPath = [&](const char* path) -> LoadResult {
+    if (!SPIFFS.exists(path)) return LoadResult::Missing;
     File file = SPIFFS.open(path, FILE_READ);
-    bool valid = false;
+    LoadResult result = LoadResult::Invalid;
     if (file && file.size() == sizeof(*out)) {
       BookProgress saved;
       if (file.read(reinterpret_cast<uint8_t*>(&saved), sizeof(saved)) ==
               sizeof(saved) &&
-          saved.version == 1 && saved.bookId == bookId) {
-        *out = saved;
-        valid = true;
+          saved.bookId == bookId) {
+        if (saved.version == 1) {
+          // Development builds before v1.0 used the same 32-byte record
+          // without a checksum. Migrate it on the next successful write.
+          saved.version = 2;
+          saved.checksum = 0;
+          *out = saved;
+          result = LoadResult::Valid;
+        } else if (saved.version == 2 &&
+                   saved.checksum == bookProgressChecksum(saved)) {
+          *out = saved;
+          result = LoadResult::Valid;
+        }
       }
     }
     if (file) file.close();
-    return valid;
+    return result;
   };
-  if (loadPath(target)) return true;
+  const LoadResult targetResult = loadPath(target);
+  if (targetResult == LoadResult::Valid) return true;
   *out = {};
   out->bookId = bookId;
-  return loadPath(backup);
+  const LoadResult backupResult = loadPath(backup);
+  if (backupResult == LoadResult::Valid) return true;
+  if (targetResult == LoadResult::Invalid ||
+      backupResult == LoadResult::Invalid) {
+    setError("Reading progress record is damaged");
+  }
+  return false;
 }
 
 bool ReadingProgress::saveBook(const BookProgress& book) const {
@@ -101,9 +146,12 @@ bool ReadingProgress::saveBook(const BookProgress& book) const {
   }
   SPIFFS.remove(temp);
   File file = SPIFFS.open(temp, FILE_WRITE);
+  BookProgress stored = book;
+  stored.version = 2;
+  stored.checksum = bookProgressChecksum(stored);
   const bool written =
-      file && file.write(reinterpret_cast<const uint8_t*>(&book),
-                         sizeof(book)) == sizeof(book);
+      file && file.write(reinterpret_cast<const uint8_t*>(&stored),
+                         sizeof(stored)) == sizeof(stored);
   if (file) {
     file.flush();
     file.close();
@@ -145,6 +193,7 @@ bool ReadingProgress::saveState() const {
 
 bool ReadingProgress::resume(uint64_t bookId, uint16_t* spine,
                              uint32_t* charStart) const {
+  clearError();
   BookProgress book;
   if (!loadBook(bookId, &book)) return false;
   if (spine) *spine = book.spine;
@@ -156,12 +205,21 @@ bool ReadingProgress::savePosition(uint64_t bookId, uint16_t spine,
                                    uint32_t charStart) {
   clearError();
   BookProgress book;
-  loadBook(bookId, &book);
+  if (!loadBook(bookId, &book) && error_[0]) return false;
   book.spine = spine;
   book.charStart = charStart;
   const bool currentChanged = state_.currentBookId != bookId;
+  const uint64_t previousCurrentBookId = state_.currentBookId;
   state_.currentBookId = bookId;
-  return saveBook(book) && (!currentChanged || saveState());
+  if (!saveBook(book)) {
+    state_.currentBookId = previousCurrentBookId;
+    return false;
+  }
+  if (currentChanged && !saveState()) {
+    state_.currentBookId = previousCurrentBookId;
+    return false;
+  }
+  return true;
 }
 
 uint32_t ReadingProgress::beginReward(uint64_t bookId, uint16_t spine,
@@ -173,7 +231,7 @@ uint32_t ReadingProgress::beginReward(uint64_t bookId, uint16_t spine,
     return 0;
   }
   BookProgress book;
-  loadBook(bookId, &book);
+  if (!loadBook(bookId, &book) && error_[0]) return 0;
   if (kind == ReadingRewardKind::Page &&
       !isForwardReadingPosition(book.hasRewardedPage, book.furthestSpine,
                                 book.furthestChar, spine, charStart)) {
@@ -185,6 +243,7 @@ uint32_t ReadingProgress::beginReward(uint64_t bookId, uint16_t spine,
     return 0;
   }
 
+  const ReadingProgressState before = state_;
   uint32_t transaction = state_.nextTransaction++;
   if (transaction == 0) transaction = state_.nextTransaction++;
   state_.pendingTransaction = transaction;
@@ -194,9 +253,7 @@ uint32_t ReadingProgress::beginReward(uint64_t bookId, uint16_t spine,
   state_.pendingKind = kind;
   state_.currentBookId = bookId;
   if (!saveState()) {
-    state_.pendingTransaction = 0;
-    state_.pendingBookId = 0;
-    state_.pendingKind = ReadingRewardKind::None;
+    state_ = before;
     return 0;
   }
   return transaction;
@@ -229,7 +286,7 @@ bool ReadingProgress::commit(uint32_t transaction) {
     return false;
   }
   BookProgress book;
-  loadBook(state_.pendingBookId, &book);
+  if (!loadBook(state_.pendingBookId, &book) && error_[0]) return false;
   book.spine = state_.pendingSpine;
   book.charStart = state_.pendingCharStart;
   if (state_.pendingKind == ReadingRewardKind::Page) {
