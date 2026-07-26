@@ -98,3 +98,4 @@
 | 2026-07-25 | Step-based ambient moments | Makes the retained e-paper scene feel alive while bounding battery use and ghosting. |
 | 2026-07-25 | Living-diorama rhythm | Visible wandering, drowsiness, dreams, and self-waking feel alive while remaining honest about step-based e-paper motion. |
 | 2026-07-25 | Separate Pet Life screen | Keeps reading rewards focused and makes autonomous behavior understandable and discoverable. |
+| 2026-07-25 | FreeInk hardware layer | Centralizes board profiles and X3 panel detection while leaving the pet engine and portrait UI independent of the hardware SDK. |

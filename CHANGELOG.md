@@ -2,6 +2,17 @@
 
 All notable changes to Book Pet are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Migrated the X3 hardware layer from the legacy community SDK to a pinned
+  FreeInk SDK submodule.
+- Moved display pins, button wake polarity, and deep-sleep wake setup to
+  FreeInk board and power abstractions.
+- Added startup detection for both original and newer X3 display-controller
+  revisions while preserving the existing portrait UI and pet save data.
+
 ## [0.4.0] - 2026-07-25
 
 ### Added

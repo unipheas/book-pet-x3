@@ -14,6 +14,13 @@ When reviewing UI changes, flag anything that:
 - hides essential actions behind network access;
 - claims the offline thought engine is sentient or cloud AI.
 
+## Hardware layer
+
+Book Pet uses the pinned `freeink-sdk` submodule for the display, input, board
+profile, X3 panel detection, and deep-sleep wake source. Keep the X3 GPIO 13
+soft-power latch in Book Pet until FreeInk represents that latch in its X3
+board profile and the replacement has been physically verified.
+
 ## AI transparency
 
 Keep `AI_DISCLOSURE.md` accurate when AI tools materially assist development,

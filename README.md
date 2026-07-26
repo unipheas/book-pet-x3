@@ -45,6 +45,7 @@ stop-motion rhythm is designed around the strengths of e-paper.
 - Conservative fast refreshes with periodic full cleanup refreshes
 - Complete offline operation
 - Reproducible PlatformIO build
+- FreeInk-based X3 display, input, board detection, and sleep integration
 - Hardware-tested release binaries
 
 ## Controls
@@ -164,11 +165,14 @@ anything.
 
 - Target: ESP32-C3, 16 MB flash, 792×528 physical X3 e-paper panel.
 - UI: counter-clockwise rotation into a 528×792 logical portrait canvas.
-- Hardware layer: pinned CrossPoint community SDK display and input libraries.
+- Hardware layer: pinned FreeInk SDK display, input, board-profile, panel
+  detection, and power-management libraries.
 - State: versioned `PetState` blob in ESP32 Preferences/NVS.
 - Power: manual Rest releases the X3 power latch and remains off until the
-  power button wakes it. Natural naps retain the latch and use timer-driven
-  light sleep so the pet can dream and wake itself.
+  power button wakes it. FreeInk selects the power-button wake source from the
+  active board profile; Book Pet retains its hardware-tested X3 GPIO 13 latch
+  release until that latch is described upstream. Natural naps retain the latch
+  and use timer-driven light sleep so the pet can dream and wake itself.
 - Time: active minutes exclude autonomous naps. Calendar time and RTC-based
   aging are not implemented.
 
@@ -177,7 +181,7 @@ anything.
 ```text
 src/             Pet state, controls, rendering, and firmware entry point
 firmware/        Verified release binaries and checksums
-community-sdk/   Pinned display/input SDK Git submodule
+freeink-sdk/     Pinned multi-device e-paper SDK Git submodule
 platformio.ini   Reproducible ESP32-C3 build configuration
 ```
 
@@ -190,6 +194,7 @@ platformio.ini   Reproducible ESP32-C3 build configuration
 - Wake visibly leaves the Dreaming state: verified.
 - Autonomous wandering, drowsiness, sleep, dreams, and self-wake: verified on
   X3 hardware for v0.4.
+- FreeInk migration: compiler-verified; physical X3 validation pending.
 - Longer-term ghosting, charging-cycle persistence, and battery-life testing
   remain to be measured during normal use.
 
@@ -206,7 +211,7 @@ Book Pet is available under the [MIT License](LICENSE). You may use, copy,
 modify, merge, publish, distribute, sublicense, and sell copies, provided the
 license notice is preserved.
 
-The pinned community SDK is also MIT-licensed; see
+The pinned FreeInk SDK is also MIT-licensed; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## AI-assisted development
@@ -222,4 +227,4 @@ breakdown of AI involvement, human oversight, validation, and contribution
 expectations.
 
 Book Pet is an independent community project and is not affiliated with or
-endorsed by XTEINK or the CrossPoint project.
+endorsed by XTEINK, FreeInk, CrossPoint, or OpenX4.

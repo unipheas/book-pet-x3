@@ -1,7 +1,10 @@
 #include <Arduino.h>
+#include <BoardConfig.h>
 #include <EInkDisplay.h>
 #include <InputManager.h>
+#include <PowerManager.h>
 #include <SPI.h>
+#include <XteinkDetect.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
@@ -12,14 +15,10 @@
 #include "PetState.h"
 
 namespace {
-constexpr int EPD_SCLK = 8;
-constexpr int EPD_MOSI = 10;
-constexpr int EPD_CS = 21;
-constexpr int EPD_DC = 4;
-constexpr int EPD_RST = 5;
-constexpr int EPD_BUSY = 6;
-constexpr int SPI_MISO = 7;
-constexpr gpio_num_t POWER_LATCH = GPIO_NUM_13;
+// GPIO 13 is the X3's proven soft-power latch. FreeInk does not currently
+// describe this latch in its X3 BoardProfile, so keep this one board-specific
+// detail here until it can be represented upstream.
+constexpr gpio_num_t X3_POWER_LATCH = GPIO_NUM_13;
 constexpr uint32_t AWAKE_MOMENT_MS = 15'000;
 constexpr uint32_t DROWSY_AFTER_MS = 2 * 60'000;
 constexpr uint32_t NATURAL_SLEEP_MS = 3 * 60'000;
@@ -40,7 +39,10 @@ enum class Screen : uint8_t {
   PageCatch
 };
 
-EInkDisplay display(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_RST, EPD_BUSY);
+EInkDisplay display(
+    BoardConfig::ACTIVE.display.sclk, BoardConfig::ACTIVE.display.mosi,
+    BoardConfig::ACTIVE.display.cs, BoardConfig::ACTIVE.display.dc,
+    BoardConfig::ACTIVE.display.rst, BoardConfig::ACTIVE.display.busy);
 InputManager buttons;
 PetEngine pet;
 Screen screen = Screen::Home;
@@ -547,22 +549,20 @@ void enterDeepSleep() {
   Serial.flush();
   pet.save();
   display.deepSleep();
-  while (buttons.isPressed(InputManager::BTN_POWER)) {
-    buttons.update();
-    delay(20);
-  }
-  gpio_set_direction(POWER_LATCH, GPIO_MODE_OUTPUT);
-  gpio_set_level(POWER_LATCH, 0);
-  esp_sleep_config_gpio_isolate();
-  gpio_deep_sleep_hold_en();
-  gpio_hold_en(POWER_LATCH);
-  pinMode(InputManager::POWER_BUTTON_PIN, INPUT_PULLUP);
-  esp_deep_sleep_enable_gpio_wakeup(
-      1ULL << InputManager::POWER_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
-  esp_deep_sleep_start();
+  freeink::PowerManager::waitForPowerButtonRelease();
+  freeink::PowerManager::armPowerButtonWakeup();
+  freeink::PowerManager::powerDownRailsForSleep();
+  gpio_set_direction(X3_POWER_LATCH, GPIO_MODE_OUTPUT);
+  gpio_set_level(X3_POWER_LATCH, 0);
+  gpio_hold_en(X3_POWER_LATCH);
+  freeink::PowerManager::deepSleep();
 }
 
 void enterDreamSleep() {
+  const gpio_num_t powerPin =
+      static_cast<gpio_num_t>(BoardConfig::ACTIVE.input.power);
+  const bool powerActiveHigh =
+      BoardConfig::ACTIVE.input.powerActiveHigh;
   while (pet.state().sleeping && pet.state().autonomousEnabled) {
     pet.save();
     display.deepSleep();
@@ -571,10 +571,10 @@ void enterDreamSleep() {
       delay(20);
     }
 
-    pinMode(InputManager::POWER_BUTTON_PIN, INPUT_PULLUP);
-    gpio_wakeup_enable(
-        static_cast<gpio_num_t>(InputManager::POWER_BUTTON_PIN),
-        GPIO_INTR_LOW_LEVEL);
+    pinMode(powerPin,
+            powerActiveHigh ? INPUT_PULLDOWN : INPUT_PULLUP);
+    gpio_wakeup_enable(powerPin, powerActiveHigh ? GPIO_INTR_HIGH_LEVEL
+                                                 : GPIO_INTR_LOW_LEVEL);
     const esp_err_t gpioResult = esp_sleep_enable_gpio_wakeup();
     const esp_err_t timerResult =
         esp_sleep_enable_timer_wakeup(AUTONOMY_WAKE_US);
@@ -590,8 +590,7 @@ void enterDreamSleep() {
     delay(100);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
-    gpio_wakeup_disable(
-        static_cast<gpio_num_t>(InputManager::POWER_BUTTON_PIN));
+    gpio_wakeup_disable(powerPin);
     Serial.printf("[bookpet] light wake result=%d cause=%d\n",
                   static_cast<int>(sleepResult),
                   static_cast<int>(wakeCause));
@@ -606,7 +605,6 @@ void enterDreamSleep() {
     }
 
     SPI.end();
-    SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
     display.begin();
     display.requestResync();
     screen = Screen::Home;
@@ -807,19 +805,29 @@ void handleInput() {
 void setup() {
   delay(250);
   gpio_deep_sleep_hold_dis();
-  gpio_hold_dis(POWER_LATCH);
-  pinMode(POWER_LATCH, OUTPUT);
-  digitalWrite(POWER_LATCH, HIGH);
+  gpio_hold_dis(X3_POWER_LATCH);
+  pinMode(X3_POWER_LATCH, OUTPUT);
+  digitalWrite(X3_POWER_LATCH, HIGH);
   Serial.begin(115200);
   delay(150);
   Serial.printf("[bookpet] boot reset=%d wake=%d\n",
                 static_cast<int>(esp_reset_reason()),
                 static_cast<int>(esp_sleep_get_wakeup_cause()));
-  SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
+  const freeink::X3DisplayVerdict panelVerdict =
+      freeink::detectX3DisplayController();
+  const bool hasUc8279 =
+      panelVerdict == freeink::X3DisplayVerdict::Uc8279Confirmed;
+  BoardConfig::selectDevice(
+      hasUc8279 ? BoardConfig::Board::XteinkX3Uc8279
+                : BoardConfig::Board::XteinkX3);
+  display.setDisplayX3();
+  Serial.printf("[bookpet] freeink board=%s panel_probe=%u\n",
+                BoardConfig::ACTIVE.name,
+                static_cast<unsigned>(panelVerdict));
+  BoardConfig::releaseSdRail();
   buttons.begin();
   pet.begin();
   pet.wake();
-  display.setDisplayX3();
   display.begin();
   display.requestResync();
   lastInputMs = millis();

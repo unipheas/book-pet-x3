@@ -1,5 +1,3 @@
-[submodule "community-sdk"]
-	path = community-sdk
-	url = https://github.com/crosspoint-reader/community-sdk.git
-	branch = master
-
+[submodule "freeink-sdk"]
+	path = freeink-sdk
+	url = https://github.com/Free-Ink/freeink-sdk.git
