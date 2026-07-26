@@ -112,8 +112,10 @@ Open **Pet Menu → Updates** on the X3.
   progress is stored separately and remains intact.
 
 Book Pet writes the inactive firmware slot first. It only switches after the
-complete file, SHA-256 digest, and official release signature have passed
-verification. Do not remove power while an installation is in progress.
+complete file and official release signature have passed verification. Browser
+and online updates also require the expected SHA-256 digest; SD updates use it
+when the optional sidecar is present. Do not remove power while an installation
+is in progress.
 
 ## Build from source
 
@@ -236,6 +238,12 @@ platformio.ini   Reproducible ESP32-C3 build configuration
 - FreeInk migration: portrait rendering, autonomous movement, repeated button
   input, manual Rest/wake, and natural sleep/light-sleep wake verified on an
   original-controller X3.
+- FAT32 SD detection, missing-file handling, and signed update installation:
+  verified on X3 hardware.
+- A deliberately corrupted RSA signature was rejected without rebooting or
+  changing the running firmware.
+- Local browser upload, inactive-slot boot confirmation, previous-slot restore,
+  and hold-Back recovery were verified on X3 hardware.
 - The 15-minute timer-driven dream/self-wake cycle remains to be rechecked on
   FreeInk; it was verified on the preceding v0.4 hardware layer.
 - Longer-term ghosting, charging-cycle persistence, and battery-life testing

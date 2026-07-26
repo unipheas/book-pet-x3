@@ -4,6 +4,8 @@ All notable changes to Book Pet are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-25
+
 ### Added
 
 - Added an on-device Updates screen with SD card, phone/browser, About, and
@@ -18,6 +20,8 @@ All notable changes to Book Pet are documented here.
   service.
 - Added reproducible RSA-4096 signing, factory-image packaging, checksums, and
   tag-driven GitHub release automation.
+- Added an approval-protected signing environment and isolated signing job so
+  build dependencies never share a runner with the private release key.
 
 ### Changed
 
@@ -29,6 +33,36 @@ All notable changes to Book Pet are documented here.
   revisions while preserving the existing portrait UI and pet save data.
 - Official release builds now reject local and SD firmware without the Book Pet
   release signature. Developer builds remain friendly to unsigned local work.
+- New OTA slots now remain pending through a five-second healthy runtime window
+  instead of being confirmed immediately after the first render.
+
+### Fixed
+
+- Fixed X3 SD-card detection after display startup by preserving the shared
+  SPI bus's MISO connection across boot, wake, and display recovery.
+- Replaced a broken framework signing hook with fail-closed Book Pet RSA
+  verification that retains and checks the complete 512-byte release signature
+  before activating an OTA slot.
+- Recovery mode now consumes the power-on press before accepting new input, so
+  the recovery screen no longer immediately returns to sleep.
+- Reopening the phone updater no longer registers duplicate web routes, and
+  status responses safely handle unusual Wi-Fi names.
+- Phone updates now serialize all install operations, use a high-entropy access
+  password plus per-session request token, and disconnect home Wi-Fi after
+  every online check.
+- Release packaging now refuses unexpected files so local test artifacts cannot
+  be swept into a published release.
+- The USB installer now pins its flashing component to an exact version with
+  subresource integrity and a restrictive content-security policy.
+
+### Verified
+
+- Installed a valid signed update from SD and through the local browser portal
+  on X3 hardware.
+- Rejected a deliberately corrupted RSA signature without rebooting or changing
+  the running firmware.
+- Restored the previous OTA slot without losing pet progress.
+- Entered recovery by holding Back at power-on and confirmed it remains open.
 
 ## [0.4.0] - 2026-07-25
 
@@ -105,3 +139,5 @@ All notable changes to Book Pet are documented here.
 [0.2.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.2.0
 [0.3.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.3.0
 [0.4.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.4.0
+[0.5.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.5.0
+[Unreleased]: https://github.com/unipheas/book-pet-x3/compare/v0.5.0...HEAD

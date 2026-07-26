@@ -43,9 +43,11 @@ This needs no app, account, or USB cable.
    - enter home Wi-Fi details and select **Check and install**.
 6. Keep the X3 powered until it verifies the firmware and restarts.
 
-The X3 creates a private WPA access point for the session. A home Wi-Fi password
-is kept in RAM only, is not written to the pet save, and is cleared after the
-connection attempt. The local upload does not require internet access.
+The X3 creates a private WPA access point with a new high-entropy password and
+request token for each session. A home Wi-Fi password is kept in RAM only, is
+not written to the pet save, and is cleared after the connection attempt. Only
+one update operation can run at a time, and the station connection is closed
+after every online check. The local upload does not require internet access.
 
 ## SD card update
 
@@ -78,9 +80,11 @@ New firmware must keep persisted pet-state migrations backward compatible.
 
 ## Hold-at-boot recovery
 
-Hold the front **Back** button while powering on. Keep holding it through the
-first moment of boot. Book Pet opens **Recovery & Updates** instead of the home
-screen. SD update, phone update, rollback, and About remain available.
+Put Book Pet to sleep, hold the front **Back** button, then press Power. Keep
+holding Back through the first moment of boot and release it when **Recovery &
+Updates** appears. Book Pet consumes the wake press before accepting another
+power action, so the recovery screen remains open. SD update, phone update,
+rollback, and About remain available.
 
 If the device cannot reach recovery, perform a clean USB web install.
 
@@ -89,11 +93,14 @@ If the device cannot reach recovery, perform a clean USB web install.
 - Two 6.5 MiB application slots: the running slot is never overwritten.
 - The new slot is selected only after the full stream finishes.
 - Official firmware requires an RSA-4096/SHA-256 signature.
+- The signature is retained separately from the firmware image and verified
+  before the inactive slot can become bootable.
 - Local uploads calculate and supply SHA-256 before installation.
 - Official online updates require HTTPS, a valid manifest, an allowed URL,
   expected size, SHA-256, and a newer semantic version.
 - A newly booted slot is confirmed only after board selection, pet-state load,
-  display initialization, and a complete first render.
+  display initialization, a complete first render, and five seconds of healthy
+  main-loop runtime.
 - If an unconfirmed image crashes during boot, the ESP32 bootloader can return
   to the previous valid slot.
 
