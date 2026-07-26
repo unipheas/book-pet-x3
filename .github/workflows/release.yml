@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to rebuild and redeploy"
+        required: true
+        type: string
+
+run-name: Release ${{ inputs.tag || github.ref_name }}
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: read
@@ -21,6 +32,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -61,13 +73,15 @@ jobs:
         run: |
           python scripts/validate_project.py
           expected="v$(tr -d '[:space:]' < VERSION)"
-          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
+          if [[ "$RELEASE_TAG" != "$expected" ]]; then
+            echo "Tag $RELEASE_TAG does not match VERSION ($expected)." >&2
             exit 1
           fi
           git fetch --no-tags origin \
             "+refs/heads/main:refs/remotes/origin/main"
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          release_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ -z "$release_commit" ]] ||
+             ! git merge-base --is-ancestor "$release_commit" origin/main; then
             echo "Release tags must point to a commit already on main." >&2
             exit 1
           fi
@@ -167,12 +181,12 @@ jobs:
       actions: read
       contents: write
       pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           submodules: recursive
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -206,10 +220,10 @@ jobs:
         shell: bash
         run: |
           title="Book Pet $(tr -d '[:space:]' < VERSION)"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/* \
+            gh release create "$RELEASE_TAG" dist/* \
               --title "$title" \
               --generate-notes
           fi
@@ -233,6 +247,10 @@ jobs:
   deploy-pages:
     needs: publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

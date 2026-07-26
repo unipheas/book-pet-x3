@@ -236,6 +236,8 @@ def check_release_workflow_security() -> None:
         "persist-credentials: false",
         "--require-hashes",
         "ffce4a512581abd417c42edf2695a3b49e8b1447849847d3f62d0db695da9efc",
+        "workflow_dispatch:",
+        "RELEASE_TAG",
     )
     if any(token not in release for token in required_release):
         raise SystemExit(

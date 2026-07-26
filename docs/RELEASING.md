@@ -52,6 +52,11 @@ The release workflow then:
 8. creates the GitHub release; and
 9. deploys the installer and stable update to GitHub Pages.
 
+If publishing needs to be retried without moving a release tag, run the
+**Release firmware** workflow manually and provide the existing tag. The
+workflow checks out and verifies that tag instead of rebuilding an untagged
+branch.
+
 The publishing job verifies the already-built factory image against the exact
 bootloader, partition table, OTA selector, and signed application. It neither
 downloads new executable packaging tools nor keeps repository credentials in
