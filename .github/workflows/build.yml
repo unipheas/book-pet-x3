@@ -35,8 +35,8 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: book-pet-x3-firmware
+          name: book-pet-x3-signature-enforcing-firmware
           path: |
-            .pio/build/xteink_x3/firmware.bin
-            .pio/build/xteink_x3/bootloader.bin
-            .pio/build/xteink_x3/partitions.bin
+            .pio/build/xteink_x3_release/firmware.bin
+            .pio/build/xteink_x3_release/bootloader.bin
+            .pio/build/xteink_x3_release/partitions.bin

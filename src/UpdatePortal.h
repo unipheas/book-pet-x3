@@ -35,8 +35,11 @@ class UpdatePortal {
   void sendStatus();
   void handleUpload();
   void performOfficialUpdate();
+  void performOfficialUpdateWork();
   bool syncSecureClock();
   bool originAllowed() const;
+  bool tokenAllowed() const;
+  bool updateBusy() const;
   static int compareVersions(const char* left, const char* right);
 
   DNSServer dns_;
@@ -44,6 +47,7 @@ class UpdatePortal {
   StatusCallback statusCallback_ = nullptr;
   String apSsid_;
   String apPassword_;
+  String sessionToken_;
   String wifiSsid_;
   String wifiPassword_;
   char statusTitle_[48] = "PHONE UPDATE";
@@ -53,7 +57,9 @@ class UpdatePortal {
   bool uploadAccepted_ = false;
   bool uploadSucceeded_ = false;
   bool officialPending_ = false;
+  bool officialRunning_ = false;
   bool rebootPending_ = false;
+  bool routesConfigured_ = false;
   uint32_t rebootAtMs_ = 0;
 };
 

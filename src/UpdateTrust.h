@@ -3,8 +3,7 @@
 // ISRG Root X1, downloaded from letsencrypt.org. The official Book Pet update
 // site is hosted on GitHub Pages over a Let's Encrypt certificate. Firmware
 // signatures remain the final integrity check even when HTTPS succeeds.
-inline constexpr char kBookPetUpdateRootCa[] = R"BOOKPET_CA(
------BEGIN CERTIFICATE-----
+inline constexpr char kBookPetUpdateRootCa[] = R"BOOKPET_CA(-----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
 cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4

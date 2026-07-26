@@ -37,6 +37,7 @@ constexpr uint32_t AWAKE_MOMENT_MS = 15'000;
 constexpr uint32_t DROWSY_AFTER_MS = 2 * 60'000;
 constexpr uint32_t NATURAL_SLEEP_MS = 3 * 60'000;
 constexpr uint64_t AUTONOMY_WAKE_US = 15ULL * 60ULL * 1'000'000ULL;
+constexpr uint32_t OTA_HEALTHY_RUNTIME_MS = 5'000;
 constexpr uint8_t FULL_REFRESH_EVERY = 12;
 constexpr uint8_t MENU_ITEM_COUNT = 10;
 constexpr uint8_t UPDATE_ITEM_COUNT = 4;
@@ -83,6 +84,8 @@ char updateStatusDetail[160] = "Choose an update method";
 uint8_t updateProgress = 0;
 bool recoveryBoot = false;
 bool displayReady = false;
+bool otaConfirmPending = false;
+uint32_t otaConfirmAfterMs = 0;
 bool drowsyShown = false;
 uint8_t gamePhase = 0;
 uint8_t playerLane = 1;
@@ -94,6 +97,31 @@ uint32_t lastAmbientMs = 0;
 uint8_t fastRefreshes = 0;
 
 void render(bool forceFull = false);
+
+void confirmHealthyUpdateIfDue(bool force = false) {
+  if (!otaConfirmPending) return;
+  if (!force &&
+      static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
+    return;
+  }
+  if (bookpet::FirmwareUpdater::confirmRunningImage()) {
+    otaConfirmPending = false;
+    Serial.println("[bookpet] OTA image confirmed after healthy runtime");
+  } else {
+    otaConfirmAfterMs = millis() + OTA_HEALTHY_RUNTIME_MS;
+    Serial.println("[bookpet] OTA image confirmation failed; will retry");
+  }
+}
+
+// The X3 display and SD card share SCLK/MOSI, but only the card uses MISO.
+// Arduino ignores new SPI pins after the bus has started, so MISO must be
+// attached before FreeInk starts the display or later SD mounts read 0xFF.
+void beginDisplayHardware() {
+  SPI.end();
+  SPI.begin(BoardConfig::ACTIVE.display.sclk, BoardConfig::ACTIVE.sd.miso,
+            BoardConfig::ACTIVE.display.mosi, BoardConfig::ACTIVE.display.cs);
+  display.begin();
+}
 
 const char* actionName(PetAction action) {
   switch (action) {
@@ -629,8 +657,7 @@ void onPortalStatus(const char* title, const char* detail, uint8_t progress) {
 }
 
 void restoreDisplayAfterSd() {
-  SPI.end();
-  display.begin();
+  beginDisplayHardware();
   display.requestResync();
 }
 
@@ -782,6 +809,7 @@ void render(bool forceFull) {
 }
 
 void enterDeepSleep() {
+  confirmHealthyUpdateIfDue(true);
   Serial.printf("[bookpet] deep sleep pet_sleeping=%u\n",
                 pet.state().sleeping);
   Serial.flush();
@@ -842,8 +870,7 @@ void enterDreamSleep() {
       pet.wake();
     }
 
-    SPI.end();
-    display.begin();
+    beginDisplayHardware();
     display.requestResync();
     screen = Screen::Home;
     const bool cleanupRefresh =
@@ -1151,19 +1178,29 @@ void setup() {
   }
   pet.begin();
   pet.wake();
-  display.begin();
+  beginDisplayHardware();
   display.requestResync();
   lastInputMs = millis();
   lastAmbientMs = lastInputMs;
   render(true);
   displayReady = true;
-  if (!bookpet::FirmwareUpdater::confirmRunningImage()) {
-    Serial.println("[bookpet] OTA image confirmation failed");
+  // A power-button wake can still be physically held after the first screen
+  // appears. Consume that wake gesture before loop() treats it as a new
+  // long-press and immediately sends recovery (or the pet) back to sleep.
+  freeink::PowerManager::waitForPowerButtonRelease();
+  buttons.update();
+  otaConfirmPending =
+      bookpet::FirmwareUpdater::runningImagePendingVerify();
+  if (otaConfirmPending) {
+    otaConfirmAfterMs = millis() + OTA_HEALTHY_RUNTIME_MS;
+    Serial.println(
+        "[bookpet] OTA image pending five-second health confirmation");
   }
 }
 
 void loop() {
   buttons.update();
+  confirmHealthyUpdateIfDue();
   if (bookpet::updatePortal.active()) {
     bookpet::updatePortal.handle();
     handleInput();

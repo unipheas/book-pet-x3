@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append and verify the RSA-4096 signature expected by Arduino Update."""
+"""Append and verify the RSA-4096 signature expected by Book Pet updates."""
 
 from __future__ import annotations
 

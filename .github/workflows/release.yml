@@ -6,16 +6,14 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: book-pet-release
   cancel-in-progress: false
 
 jobs:
-  package:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -42,7 +40,39 @@ jobs:
       - name: Build signed-update firmware
         run: pio run -e xteink_x3_release
 
-      - name: Load release signing key
+      - name: Stage unsigned release inputs
+        shell: bash
+        run: |
+          mkdir release-build
+          cp .pio/build/xteink_x3_release/firmware.bin release-build/
+          cp .pio/build/xteink_x3_release/bootloader.bin release-build/
+          cp .pio/build/xteink_x3_release/partitions.bin release-build/
+          cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" \
+            release-build/
+          cp keys/book-pet-x3-update-public.pem release-build/update-public.pem
+
+      - name: Upload unsigned release inputs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+          retention-days: 1
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release-signing
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download unsigned release inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+
+      - name: Load protected release signing key
         shell: bash
         env:
           BOOKPET_OTA_SIGNING_KEY: ${{ secrets.BOOKPET_OTA_SIGNING_KEY }}
@@ -56,10 +86,72 @@ jobs:
           printf '%s\n' "$BOOKPET_OTA_SIGNING_KEY" \
             > "$RUNNER_TEMP/book-pet-keys/release.pem"
 
+      - name: Sign the exact release application
+        shell: bash
+        run: |
+          openssl pkey -in "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -text -noout | grep -q "4096 bit"
+          openssl pkey -in "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -pubout -out "$RUNNER_TEMP/book-pet-keys/derived-public.pem"
+          cmp "$RUNNER_TEMP/book-pet-keys/derived-public.pem" \
+            release-build/update-public.pem
+          mkdir release-signed
+          openssl dgst -sha256 \
+            -sign "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -out "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            release-build/firmware.bin
+          cp release-build/firmware.bin \
+            release-signed/book-pet-x3-update.bin
+          cat "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            >> release-signed/book-pet-x3-update.bin
+          openssl dgst -sha256 \
+            -verify release-build/update-public.pem \
+            -signature "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            release-build/firmware.bin
+
+      - name: Upload signed update
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: book-pet-signed-update
+          path: release-signed/book-pet-x3-update.bin
+          retention-days: 1
+
+  publish:
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.x"
+
+      - name: Download unsigned release inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+
+      - name: Download signed update
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-signed-update
+          path: release-signed
+
       - name: Package release and web installer
         run: |
+          pip install esptool==5.1.2
           python scripts/package_release.py \
-            --private-key "$RUNNER_TEMP/book-pet-keys/release.pem"
+            --build-dir release-build \
+            --boot-app0 release-build/boot_app0.bin \
+            --signed-update release-signed/book-pet-x3-update.bin
           cd dist
           sha256sum --check SHA256SUMS
 
@@ -94,7 +186,7 @@ jobs:
           path: pages
 
   deploy-pages:
-    needs: package
+    needs: publish
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from sign_firmware import sign_firmware
@@ -17,6 +18,18 @@ from sign_firmware import sign_firmware
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_KEY = ROOT / "keys" / "book-pet-x3-update-public.pem"
 MAX_UPDATE_BYTES = 0x680000
+MANAGED_OUTPUTS = {
+    "SHA256SUMS",
+    "book-pet-x3.bin",
+    "book-pet-x3-factory.bin",
+    "book-pet-x3-update.bin",
+    "book-pet-x3-update.bin.sha256",
+    "boot_app0.bin",
+    "bootloader.bin",
+    "manifest.json",
+    "partitions.bin",
+    "stable.json",
+}
 
 
 def sha256(path: Path) -> str:
@@ -56,14 +69,54 @@ def require(path: Path) -> Path:
     return path
 
 
+def verify_signed_update(source: Path, signed: Path, public_key: Path) -> None:
+    expected_size = source.stat().st_size + 512
+    if signed.stat().st_size != expected_size:
+        raise SystemExit(
+            f"Signed update has the wrong size: expected {expected_size}, "
+            f"got {signed.stat().st_size}"
+        )
+    with source.open("rb") as raw, signed.open("rb") as package:
+        for chunk in iter(lambda: raw.read(1024 * 1024), b""):
+            if package.read(len(chunk)) != chunk:
+                raise SystemExit(
+                    "Signed update does not contain the release application"
+                )
+        signature = package.read()
+    if len(signature) != 512:
+        raise SystemExit("Signed update does not end with a 512-byte signature")
+    with tempfile.TemporaryDirectory(prefix="book-pet-package-") as temp:
+        signature_path = Path(temp) / "signature.bin"
+        signature_path.write_bytes(signature)
+        subprocess.run(
+            [
+                "openssl",
+                "dgst",
+                "-sha256",
+                "-verify",
+                str(public_key),
+                "-signature",
+                str(signature_path),
+                str(source),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--private-key", required=True, type=Path)
+    signing = parser.add_mutually_exclusive_group(required=True)
+    signing.add_argument("--private-key", type=Path)
+    signing.add_argument("--signed-update", type=Path)
     parser.add_argument(
         "--build-dir",
         type=Path,
         default=ROOT / ".pio" / "build" / "xteink_x3_release",
     )
+    parser.add_argument("--boot-app0", type=Path)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
     parser.add_argument(
         "--base-url",
@@ -78,11 +131,25 @@ def main() -> None:
     build = args.build_dir.resolve()
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    unexpected = sorted(
+        path.name for path in output.iterdir() if path.name not in MANAGED_OUTPUTS
+    )
+    if unexpected:
+        names = ", ".join(unexpected)
+        raise SystemExit(
+            f"Output directory contains unexpected release files: {names}"
+        )
+    for name in MANAGED_OUTPUTS:
+        path = output / name
+        if path.is_file():
+            path.unlink()
     app = require(build / "firmware.bin")
     bootloader = require(build / "bootloader.bin")
     partitions = require(build / "partitions.bin")
     boot_app0 = require(
-        platformio_core_dir()
+        args.boot_app0.resolve()
+        if args.boot_app0
+        else platformio_core_dir()
         / "packages"
         / "framework-arduinoespressif32"
         / "tools"
@@ -97,7 +164,12 @@ def main() -> None:
     shutil.copy2(bootloader, output / "bootloader.bin")
     shutil.copy2(partitions, output / "partitions.bin")
     shutil.copy2(boot_app0, output / "boot_app0.bin")
-    sign_firmware(app, args.private_key.resolve(), PUBLIC_KEY, update)
+    if args.private_key:
+        sign_firmware(app, args.private_key.resolve(), PUBLIC_KEY, update)
+    else:
+        signed_update = require(args.signed_update.resolve())
+        verify_signed_update(app, signed_update, PUBLIC_KEY)
+        shutil.copy2(signed_update, update)
     if update.stat().st_size > MAX_UPDATE_BYTES:
         raise SystemExit("Signed update does not fit an OTA partition")
 

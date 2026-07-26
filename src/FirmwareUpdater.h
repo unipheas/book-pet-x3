@@ -37,6 +37,13 @@ class FirmwareUpdater {
   void setError(const char* message);
 
   SHA256Builder sha256_;
+#if BOOKPET_REQUIRE_SIGNED_UPDATES
+  static constexpr size_t kSignatureBytes = 512;
+  SHA256Builder signatureSha256_;
+  uint8_t signature_[kSignatureBytes] = {};
+  size_t firmwareBytes_ = 0;
+  size_t signatureBytes_ = 0;
+#endif
   String expectedSha256_;
   String calculatedSha256_;
   size_t totalBytes_ = 0;

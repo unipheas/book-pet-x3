@@ -21,13 +21,16 @@ constexpr char kProductId[] = "book-pet-x3";
 constexpr char kAllowedUpdatePrefix[] =
     "https://unipheas.github.io/book-pet-x3/";
 const char* kCollectedHeaders[] = {"Origin", "Host"};
+constexpr char kPasswordAlphabet[] =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
 String jsonEscape(const char* value) {
   String escaped;
   if (!value) return escaped;
   while (*value) {
+    const uint8_t character = static_cast<uint8_t>(*value);
     if (*value == '"' || *value == '\\') escaped += '\\';
-    if (*value == '\n' || *value == '\r') {
+    if (character < 0x20) {
       escaped += ' ';
     } else {
       escaped += *value;
@@ -45,14 +48,28 @@ bool UpdatePortal::start(StatusCallback callback) {
   statusCallback_ = callback;
   const uint32_t identity =
       static_cast<uint32_t>(ESP.getEfuseMac()) & 0xFFFFFF;
-  const uint32_t secret = esp_random() % 100000000;
   char value[32];
   snprintf(value, sizeof(value), "BookPet-%06lX",
            static_cast<unsigned long>(identity));
   apSsid_ = value;
-  snprintf(value, sizeof(value), "pages%08lu",
-           static_cast<unsigned long>(secret));
-  apPassword_ = value;
+  char password[19] = "pages-";
+  for (size_t index = 6; index < sizeof(password) - 1; ++index) {
+    password[index] =
+        kPasswordAlphabet[esp_random() % (sizeof(kPasswordAlphabet) - 1)];
+  }
+  password[sizeof(password) - 1] = '\0';
+  apPassword_ = password;
+  char token[33];
+  for (size_t index = 0; index < 4; ++index) {
+    snprintf(token + index * 8, 9, "%08lx",
+             static_cast<unsigned long>(esp_random()));
+  }
+  sessionToken_ = token;
+  uploadAccepted_ = false;
+  uploadSucceeded_ = false;
+  officialPending_ = false;
+  officialRunning_ = false;
+  rebootPending_ = false;
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_AP);
@@ -62,7 +79,10 @@ bool UpdatePortal::start(StatusCallback callback) {
   }
 
   dns_.start(kDnsPort, "*", WiFi.softAPIP());
-  configureRoutes();
+  if (!routesConfigured_) {
+    configureRoutes();
+    routesConfigured_ = true;
+  }
   server_.begin();
   active_ = true;
   char detail[160];
@@ -91,7 +111,11 @@ void UpdatePortal::configureRoutes() {
       },
       [this]() { handleUpload(); });
   server_.on("/api/official", HTTP_POST, [this]() {
-    if (firmwareUpdater.running() || officialPending_) {
+    if (!originAllowed() || !tokenAllowed()) {
+      server_.send(403, "text/plain", "This update request is not authorized.");
+      return;
+    }
+    if (updateBusy()) {
       server_.send(409, "text/plain", "An update is already running.");
       return;
     }
@@ -139,16 +163,30 @@ void UpdatePortal::sendStatus() {
       "\",\"version\":\"" + BOOKPET_VERSION +
       "\",\"signed\":" +
       (FirmwareUpdater::requiresSignature() ? "true" : "false") +
-      ",\"progress\":" + String(progress_) + "}";
+      ",\"progress\":" + String(progress_) +
+      ",\"token\":\"" + jsonEscape(sessionToken_.c_str()) + "\"}";
   server_.sendHeader("Cache-Control", "no-store");
   server_.send(200, "application/json", body);
 }
 
 bool UpdatePortal::originAllowed() const {
+  String host = server_.header("Host");
+  host.toLowerCase();
+  if (host != "192.168.4.1" && host != "192.168.4.1:80") return false;
   const String origin = server_.header("Origin");
   if (origin.isEmpty()) return true;
-  const String expected = String("http://") + server_.header("Host");
-  return origin == expected;
+  return origin == "http://192.168.4.1" ||
+         origin == "http://192.168.4.1:80";
+}
+
+bool UpdatePortal::tokenAllowed() const {
+  return !sessionToken_.isEmpty() &&
+         server_.arg("token") == sessionToken_;
+}
+
+bool UpdatePortal::updateBusy() const {
+  return firmwareUpdater.running() || uploadAccepted_ || officialPending_ ||
+         officialRunning_ || rebootPending_;
 }
 
 void UpdatePortal::handleUpload() {
@@ -156,7 +194,11 @@ void UpdatePortal::handleUpload() {
   if (upload.status == UPLOAD_FILE_START) {
     uploadAccepted_ = false;
     uploadSucceeded_ = false;
-    if (!originAllowed()) {
+    if (updateBusy()) {
+      setStatus("UPDATE BLOCKED", "Another update is already running");
+      return;
+    }
+    if (!originAllowed() || !tokenAllowed()) {
       setStatus("UPDATE BLOCKED", "The upload came from another website");
       return;
     }
@@ -229,8 +271,7 @@ int UpdatePortal::compareVersions(const char* left, const char* right) {
   return 0;
 }
 
-void UpdatePortal::performOfficialUpdate() {
-  officialPending_ = false;
+void UpdatePortal::performOfficialUpdateWork() {
   setStatus("CONNECTING TO WI-FI", wifiSsid_.c_str(), 0);
   WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
@@ -242,11 +283,9 @@ void UpdatePortal::performOfficialUpdate() {
     server_.handleClient();
     delay(100);
   }
-  wifiPassword_ = "";
   if (WiFi.status() != WL_CONNECTED) {
     setStatus("WI-FI FAILED",
               "Check the network name and password, then try again");
-    WiFi.disconnect(false);
     return;
   }
 
@@ -348,6 +387,17 @@ void UpdatePortal::performOfficialUpdate() {
   rebootAtMs_ = millis() + 2'500;
 }
 
+void UpdatePortal::performOfficialUpdate() {
+  officialPending_ = false;
+  officialRunning_ = true;
+  performOfficialUpdateWork();
+  wifiSsid_ = "";
+  wifiPassword_ = "";
+  WiFi.disconnect(false);
+  WiFi.setSleep(true);
+  officialRunning_ = false;
+}
+
 void UpdatePortal::handle() {
   if (!active_) return;
   dns_.processNextRequest();
@@ -360,7 +410,7 @@ void UpdatePortal::handle() {
 }
 
 bool UpdatePortal::safeToStop() const {
-  return !firmwareUpdater.running() && !officialPending_ && !rebootPending_;
+  return !updateBusy();
 }
 
 void UpdatePortal::stop() {
@@ -373,7 +423,9 @@ void UpdatePortal::stop() {
   WiFi.mode(WIFI_OFF);
   active_ = false;
   officialPending_ = false;
+  officialRunning_ = false;
   rebootPending_ = false;
+  sessionToken_ = "";
   wifiSsid_ = "";
   wifiPassword_ = "";
   statusCallback_ = nullptr;

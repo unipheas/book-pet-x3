@@ -3,8 +3,7 @@
 // Public half of the Book Pet release-signing key. The private key is never
 // stored in this repository; official release automation reads it from the
 // BOOKPET_OTA_SIGNING_KEY GitHub Actions secret.
-inline constexpr char kBookPetUpdatePublicKey[] = R"BOOKPET_KEY(
------BEGIN PUBLIC KEY-----
+inline constexpr char kBookPetUpdatePublicKey[] = R"BOOKPET_KEY(-----BEGIN PUBLIC KEY-----
 MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAipwzYOqKOtREWJuXCGfU
 6a7B7Z55/LbZU2BxFRZfDkl0PRZXcVB9gyHMoqjvdZGScr3eB0gwq9sOge0Eq5Lj
 aRBMFr+I7ZXh8EyC/rj2Iri5PoRubyBNd1jlBOLPqC4oB7VmlZmrQGGnhIXwwdnw

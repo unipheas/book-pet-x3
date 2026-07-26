@@ -6,9 +6,13 @@
     <meta name="theme-color" content="#171612">
     <meta name="description"
           content="Install Book Pet on an XTEINK X3 Developer Edition.">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
     <title>Install Book Pet X3</title>
     <script type="module"
-      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module">
+      src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"
+      integrity="sha384-f+fR3K1mnKB2tVps4hdEh+qJvLgH2bKw81Yn+eNE3+gE8YpqocjkxQON4k19I3e/"
+      crossorigin="anonymous">
     </script>
     <style>
       :root {
@@ -56,13 +60,17 @@
       esp-web-install-button { display: inline-block; }
       esp-web-install-button button {
         border: 3px solid var(--line);
+        background: var(--accent);
+        color: var(--paper-2);
         padding: 16px 28px;
         font: 800 19px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
         cursor: pointer;
         box-shadow: 5px 5px 0 var(--line);
       }
       esp-web-install-button button:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--line); }
-      .support { display: block; max-width: 620px; margin: 18px auto 0; font-size: 14px; color: var(--muted); }
+      esp-web-install-button button:hover { background: var(--accent-dark); }
+      esp-web-install-button button:focus-visible { outline: 4px solid var(--paper-2); outline-offset: -8px; }
+      .support { display: block; max-width: 620px; margin: 18px auto 0; font-size: 16px; color: var(--muted); }
       .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; margin-top: 36px; }
       .card { padding: 28px; }
       h2 { margin: 0 0 16px; font-size: 23px; }
@@ -70,7 +78,7 @@
       li + li { margin-top: 10px; }
       code { background: #e8e0c5; padding: 2px 5px; }
       .warning { border-color: var(--accent-dark); box-shadow: 8px 8px 0 var(--accent-dark); }
-      footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+      footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 16px; }
       a { color: var(--accent-dark); font-weight: 700; }
       @media (max-width: 720px) {
         main { padding-top: 20px; }

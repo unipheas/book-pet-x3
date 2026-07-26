@@ -18,7 +18,7 @@ constexpr uint32_t kStreamStallTimeoutMs = 30'000;
 UpdaterRSAVerifier& releaseVerifier() {
   static UpdaterRSAVerifier verifier(
       reinterpret_cast<const uint8_t*>(kBookPetUpdatePublicKey),
-      sizeof(kBookPetUpdatePublicKey) - 1, HASH_SHA256);
+      sizeof(kBookPetUpdatePublicKey), HASH_SHA256);
   return verifier;
 }
 #endif
@@ -48,14 +48,20 @@ bool FirmwareUpdater::begin(size_t totalBytes, const char* expectedSha256) {
     return false;
   }
 
+  size_t imageBytes = totalBytes;
 #if BOOKPET_REQUIRE_SIGNED_UPDATES
-  if (!Update.installSignature(&releaseVerifier())) {
-    setError("Release signature verification could not start");
+  if (totalBytes < kMinimumFirmwareBytes + kSignatureBytes) {
+    setError("The signed firmware file is too small");
     return false;
   }
+  firmwareBytes_ = totalBytes - kSignatureBytes;
+  signatureBytes_ = 0;
+  memset(signature_, 0, sizeof(signature_));
+  signatureSha256_.begin();
+  imageBytes = firmwareBytes_;
 #endif
 
-  if (!Update.begin(totalBytes, U_FLASH)) {
+  if (!Update.begin(imageBytes, U_FLASH)) {
     setError(Update.errorString());
     return false;
   }
@@ -75,6 +81,40 @@ size_t FirmwareUpdater::write(const uint8_t* data, size_t length) {
   const size_t remaining =
       totalBytes_ > writtenBytes_ ? totalBytes_ - writtenBytes_ : 0;
   if (length > remaining) length = remaining;
+#if BOOKPET_REQUIRE_SIGNED_UPDATES
+  size_t accepted = 0;
+  const size_t imageRemaining =
+      writtenBytes_ < firmwareBytes_ ? firmwareBytes_ - writtenBytes_ : 0;
+  const size_t imageLength = min(length, imageRemaining);
+  if (imageLength > 0) {
+    const size_t written =
+        Update.write(const_cast<uint8_t*>(data), imageLength);
+    if (written > 0) {
+      sha256_.add(data, written);
+      signatureSha256_.add(data, written);
+      writtenBytes_ += written;
+      accepted += written;
+    }
+    if (written != imageLength) {
+      setError(Update.errorString());
+      return accepted;
+    }
+  }
+
+  const size_t signatureLength = length - imageLength;
+  if (signatureLength > 0) {
+    if (signatureLength > kSignatureBytes - signatureBytes_) {
+      setError("The firmware signature is too large");
+      return accepted;
+    }
+    memcpy(signature_ + signatureBytes_, data + imageLength, signatureLength);
+    sha256_.add(data + imageLength, signatureLength);
+    signatureBytes_ += signatureLength;
+    writtenBytes_ += signatureLength;
+    accepted += signatureLength;
+  }
+  return accepted;
+#else
   const size_t written =
       Update.write(const_cast<uint8_t*>(data), length);
   if (written > 0) {
@@ -85,6 +125,7 @@ size_t FirmwareUpdater::write(const uint8_t* data, size_t length) {
     setError(Update.errorString());
   }
   return written;
+#endif
 }
 
 bool FirmwareUpdater::finish() {
@@ -110,6 +151,23 @@ bool FirmwareUpdater::finish() {
     return false;
   }
 
+#if BOOKPET_REQUIRE_SIGNED_UPDATES
+  if (signatureBytes_ != kSignatureBytes) {
+    setError("The firmware signature is missing");
+    Update.abort();
+    running_ = false;
+    return false;
+  }
+  signatureSha256_.calculate();
+  if (!releaseVerifier().verify(&signatureSha256_, signature_,
+                                kSignatureBytes)) {
+    setError("The firmware signature is not trusted");
+    Update.abort();
+    running_ = false;
+    return false;
+  }
+#endif
+
   if (!Update.end()) {
     setError(Update.errorString());
     running_ = false;
@@ -128,6 +186,11 @@ void FirmwareUpdater::abort(const char* reason) {
   running_ = false;
   totalBytes_ = 0;
   writtenBytes_ = 0;
+#if BOOKPET_REQUIRE_SIGNED_UPDATES
+  firmwareBytes_ = 0;
+  signatureBytes_ = 0;
+  memset(signature_, 0, sizeof(signature_));
+#endif
   if (reason) setError(reason);
 }
 

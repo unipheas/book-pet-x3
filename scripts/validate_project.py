@@ -118,11 +118,144 @@ def check_no_private_key() -> None:
             raise SystemExit(f"Private key material found in repository: {path}")
 
 
+def check_x3_shared_spi() -> None:
+    source = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8")
+    helper = re.search(
+        r"void beginDisplayHardware\(\) \{(?P<body>.*?)\n\}", source, re.S
+    )
+    if not helper or "BoardConfig::ACTIVE.sd.miso" not in helper.group("body"):
+        raise SystemExit(
+            "X3 display startup must attach the shared SD MISO pin"
+        )
+    if source.count("display.begin();") != 1:
+        raise SystemExit(
+            "All display startup paths must use beginDisplayHardware()"
+        )
+    if source.count("beginDisplayHardware();") < 3:
+        raise SystemExit(
+            "Setup, wake, and SD recovery must preserve the shared SPI wiring"
+        )
+
+
+def check_updater_fails_closed() -> None:
+    source = (ROOT / "src" / "FirmwareUpdater.cpp").read_text(encoding="utf-8")
+    if "Update.installSignature" in source:
+        raise SystemExit(
+            "Do not use the framework signing hook; it clears its signature size"
+        )
+    required = (
+        "totalBytes - kSignatureBytes",
+        "signatureSha256_.add",
+        "releaseVerifier().verify",
+        'setError("The firmware signature is not trusted")',
+    )
+    if any(token not in source for token in required):
+        raise SystemExit("Signed updates must retain and verify their RSA signature")
+    if source.index("releaseVerifier().verify") > source.index("Update.end()"):
+        raise SystemExit("The RSA signature must be verified before OTA activation")
+
+
+def check_boot_release_guard() -> None:
+    source = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8")
+    setup = source[source.index("void setup()") : source.index("void loop()")]
+    loop = source[source.index("void loop()") :]
+    guard = "freeink::PowerManager::waitForPowerButtonRelease();"
+    if guard not in setup or setup.index(guard) < setup.index("render(true);"):
+        raise SystemExit(
+            "Boot must consume the wake press after rendering recovery"
+        )
+    if "buttons.update();" not in setup[setup.index(guard) :]:
+        raise SystemExit("Input state must be refreshed after the wake press")
+    if "confirmRunningImage()" in setup:
+        raise SystemExit(
+            "A new OTA slot must not be confirmed immediately in setup"
+        )
+    if "OTA_HEALTHY_RUNTIME_MS = 5'000" not in source:
+        raise SystemExit("OTA boot confirmation needs a healthy runtime window")
+    if "confirmHealthyUpdateIfDue();" not in loop:
+        raise SystemExit("The main loop must confirm a healthy OTA slot")
+
+
+def check_update_portal_hardening() -> None:
+    source = (ROOT / "src" / "UpdatePortal.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "src" / "UpdatePortal.h").read_text(encoding="utf-8")
+    trust = (ROOT / "src" / "UpdateTrust.h").read_text(encoding="utf-8")
+    if "if (!routesConfigured_)" not in source or "routesConfigured_" not in header:
+        raise SystemExit(
+            "Phone update routes must only be registered once per boot"
+        )
+    if "character < 0x20" not in source:
+        raise SystemExit("Phone update JSON must escape control characters")
+    required = (
+        "officialRunning_",
+        "updateBusy()",
+        "tokenAllowed()",
+        "sessionToken_",
+        "char password[19]",
+        "WiFi.disconnect(false)",
+    )
+    if any(token not in source and token not in header for token in required):
+        raise SystemExit(
+            "Phone updates must serialize requests, use a session token, "
+            "and clear station connections"
+        )
+    if 'R"BOOKPET_CA(-----BEGIN CERTIFICATE-----' not in trust:
+        raise SystemExit("The HTTPS trust anchor must begin at the PEM header")
+
+
+def check_release_output_allowlist() -> None:
+    source = (ROOT / "scripts" / "package_release.py").read_text(
+        encoding="utf-8"
+    )
+    if "MANAGED_OUTPUTS" not in source or "unexpected release files" not in source:
+        raise SystemExit(
+            "Release packaging must reject unexpected files in dist"
+        )
+
+
+def check_release_workflow_security() -> None:
+    release = (
+        ROOT / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+    build = (
+        ROOT / ".github" / "workflows" / "build.yml"
+    ).read_text(encoding="utf-8")
+    site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    required_release = (
+        "environment: release-signing",
+        "book-pet-unsigned-release",
+        "book-pet-signed-update",
+        "--signed-update",
+    )
+    if any(token not in release for token in required_release):
+        raise SystemExit(
+            "Release signing must run as a separate protected job"
+        )
+    if ".pio/build/xteink_x3_release/firmware.bin" not in build:
+        raise SystemExit(
+            "CI must publish the signature-enforcing firmware artifact"
+        )
+    if (
+        "esp-web-tools@10.4.0" not in site
+        or 'integrity="sha384-' not in site
+        or "Content-Security-Policy" not in site
+    ):
+        raise SystemExit(
+            "The web installer dependency must be pinned with SRI and CSP"
+        )
+
+
 def main() -> None:
     check_versions()
     check_trust_material()
     check_partitions()
     check_no_private_key()
+    check_x3_shared_spi()
+    check_updater_fails_closed()
+    check_boot_release_guard()
+    check_update_portal_hardening()
+    check_release_output_allowlist()
+    check_release_workflow_security()
     print("Book Pet release invariants are valid")
 
 

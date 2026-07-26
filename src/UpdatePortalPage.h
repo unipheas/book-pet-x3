@@ -56,10 +56,11 @@ inline constexpr char kBookPetUpdatePortalPage[] = R"BOOKPET_HTML(
 <script>
 const $=id=>document.getElementById(id);
 const hex=buf=>[...new Uint8Array(buf)].map(x=>x.toString(16).padStart(2,'0')).join('');
-let busy=false;
-async function poll(){
-  try{
-    const s=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+	let busy=false,token='';
+	async function poll(){
+	  try{
+	    const s=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+	    token=s.token||token;
     $('status').textContent=`${s.title}\n${s.detail}\nVersion ${s.version}${s.signed?' · signed updates required':' · developer mode'}`;
     if(!busy)$('progress').value=s.progress||0;
     if(/FAILED|BLOCKED|CANCELLED|UP TO DATE/.test(s.title)){
@@ -69,14 +70,15 @@ async function poll(){
 }
 setInterval(poll,1000);poll();
 $('upload').onclick=async()=>{
-  const file=$('file').files[0];
-  if(!file)return alert('Choose a Book Pet update file first.');
+	  const file=$('file').files[0];
+	  if(!file)return alert('Choose a Book Pet update file first.');
+	  if(!token){await poll();if(!token)return alert('Refresh the page and try again.');}
   if(!confirm(`Install ${file.name}? Keep the X3 powered until it restarts.`))return;
   busy=true;$('upload').disabled=true;$('official').disabled=true;
   $('status').textContent='Calculating SHA-256…';
   const sha=hex(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()));
   const xhr=new XMLHttpRequest();
-  xhr.open('POST',`/api/upload?size=${file.size}&sha256=${sha}`);
+	  xhr.open('POST',`/api/upload?size=${file.size}&sha256=${sha}&token=${encodeURIComponent(token)}`);
   xhr.upload.onprogress=e=>{if(e.lengthComputable)$('progress').value=e.loaded/e.total*100};
   xhr.onload=()=>{$('status').textContent=xhr.responseText||'Upload finished';
     if(xhr.status>=400){busy=false;$('upload').disabled=false;$('official').disabled=false}poll()};
@@ -85,12 +87,13 @@ $('upload').onclick=async()=>{
   xhr.send(file);
 };
 $('official').onclick=async()=>{
-  const ssid=$('ssid').value.trim(),password=$('password').value;
-  if(!ssid)return alert('Enter your home Wi-Fi name.');
+	  const ssid=$('ssid').value.trim(),password=$('password').value;
+	  if(!ssid)return alert('Enter your home Wi-Fi name.');
+	  if(!token){await poll();if(!token)return alert('Refresh the page and try again.');}
   if(!confirm('Connect briefly and install the latest official Book Pet?'))return;
   busy=true;$('upload').disabled=true;$('official').disabled=true;
   try{
-    const body=new URLSearchParams({ssid,password});
+	    const body=new URLSearchParams({ssid,password,token});
     const r=await fetch('/api/official',{method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
     $('status').textContent=await r.text();
