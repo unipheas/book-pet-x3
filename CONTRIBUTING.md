@@ -26,6 +26,7 @@ Thanks for helping make a tiny e-paper pet more delightful.
 
    ```sh
    pio run
+   python3 scripts/validate_project.py
    ```
 
 4. If you have an unlocked XTEINK X3 Developer Edition, connect it with the
@@ -42,7 +43,10 @@ successful compiler build is not the same as an on-device test.
 
 - Create a focused branch from `main`.
 - Keep unrelated changes in separate pull requests.
-- Run `pio run` before opening the pull request.
+- Run `pio run` and `python3 scripts/validate_project.py` before opening the
+  pull request.
+- Changes to installation, recovery, or firmware trust must also build
+  `pio run -e xteink_x3_release` and be physically tested on an X3.
 - Explain the user-visible behavior and e-paper refresh impact.
 - Say exactly which hardware was tested, or clearly mark the change as
   compiler-only.

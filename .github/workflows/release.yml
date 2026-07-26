@@ -1,0 +1,242 @@
+name: Release firmware
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-pet-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install hash-locked PlatformIO
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r scripts/requirements-release.txt
+
+      - name: Verify the embedded platform archive
+        shell: bash
+        run: |
+          platform_archive="$RUNNER_TEMP/platform-espressif32.zip"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$platform_archive" \
+            "https://github.com/pioarduino/platform-espressif32/releases/download/55.03.37/platform-espressif32.zip"
+          echo "ffce4a512581abd417c42edf2695a3b49e8b1447849847d3f62d0db695da9efc  $platform_archive" \
+            | sha256sum --check --strict
+          PLATFORM_ARCHIVE="$platform_archive" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          config = Path("platformio.ini")
+          source = (
+              "https://github.com/pioarduino/platform-espressif32/"
+              "releases/download/55.03.37/platform-espressif32.zip"
+          )
+          text = config.read_text(encoding="utf-8")
+          if text.count(source) != 1:
+              raise SystemExit("Pinned platform URL changed unexpectedly")
+          archive = Path(os.environ["PLATFORM_ARCHIVE"]).resolve().as_uri()
+          config.write_text(text.replace(source, archive), encoding="utf-8")
+          PY
+
+      - name: Verify tag and version
+        shell: bash
+        run: |
+          python scripts/validate_project.py
+          expected="v$(tr -d '[:space:]' < VERSION)"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin \
+            "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tags must point to a commit already on main." >&2
+            exit 1
+          fi
+
+      - name: Build signed-update firmware
+        run: pio run -e xteink_x3_release
+
+      - name: Stage unsigned release inputs
+        shell: bash
+        run: |
+          mkdir release-build
+          cp .pio/build/xteink_x3_release/firmware.bin release-build/
+          cp .pio/build/xteink_x3_release/bootloader.bin release-build/
+          cp .pio/build/xteink_x3_release/partitions.bin release-build/
+          cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" \
+            release-build/
+          cp keys/book-pet-x3-update-public.pem release-build/update-public.pem
+          "$HOME/.platformio/penv/bin/python" \
+            "$HOME/.platformio/packages/tool-esptoolpy/esptool.py" \
+            --chip esp32c3 merge-bin \
+            -o release-build/book-pet-x3-factory.bin \
+            --flash-mode dio --flash-freq 40m --flash-size 16MB \
+            0x0 release-build/bootloader.bin \
+            0x8000 release-build/partitions.bin \
+            0xe000 release-build/boot_app0.bin \
+            0x10000 release-build/firmware.bin
+
+      - name: Upload unsigned release inputs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+          retention-days: 1
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release-signing
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download unsigned release inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+
+      - name: Load protected release signing key
+        shell: bash
+        env:
+          BOOKPET_OTA_SIGNING_KEY: ${{ secrets.BOOKPET_OTA_SIGNING_KEY }}
+        run: |
+          if [[ -z "$BOOKPET_OTA_SIGNING_KEY" ]]; then
+            echo "BOOKPET_OTA_SIGNING_KEY is not configured." >&2
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/book-pet-keys"
+          umask 077
+          printf '%s\n' "$BOOKPET_OTA_SIGNING_KEY" \
+            > "$RUNNER_TEMP/book-pet-keys/release.pem"
+
+      - name: Sign the exact release application
+        shell: bash
+        run: |
+          openssl pkey -in "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -text -noout | grep -q "4096 bit"
+          openssl pkey -in "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -pubout -out "$RUNNER_TEMP/book-pet-keys/derived-public.pem"
+          cmp "$RUNNER_TEMP/book-pet-keys/derived-public.pem" \
+            release-build/update-public.pem
+          mkdir release-signed
+          openssl dgst -sha256 \
+            -sign "$RUNNER_TEMP/book-pet-keys/release.pem" \
+            -out "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            release-build/firmware.bin
+          cp release-build/firmware.bin \
+            release-signed/book-pet-x3-update.bin
+          cat "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            >> release-signed/book-pet-x3-update.bin
+          openssl dgst -sha256 \
+            -verify release-build/update-public.pem \
+            -signature "$RUNNER_TEMP/book-pet-keys/signature.bin" \
+            release-build/firmware.bin
+
+      - name: Upload signed update
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: book-pet-signed-update
+          path: release-signed/book-pet-x3-update.bin
+          retention-days: 1
+
+  publish:
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.x"
+
+      - name: Download unsigned release inputs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-unsigned-release
+          path: release-build
+
+      - name: Download signed update
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: book-pet-signed-update
+          path: release-signed
+
+      - name: Package release and web installer
+        run: |
+          python scripts/package_release.py \
+            --build-dir release-build \
+            --boot-app0 release-build/boot_app0.bin \
+            --factory-image release-build/book-pet-x3-factory.bin \
+            --signed-update release-signed/book-pet-x3-update.bin
+          cd dist
+          sha256sum --check SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          title="Book Pet $(tr -d '[:space:]' < VERSION)"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$title" \
+              --generate-notes
+          fi
+
+      - name: Assemble installer site
+        shell: bash
+        run: |
+          mkdir -p pages/update
+          cp -R site/. pages/
+          cp dist/manifest.json pages/manifest.json
+          cp dist/book-pet-x3-factory.bin pages/
+          cp dist/book-pet-x3-update.bin pages/
+          cp dist/stable.json pages/update/stable.json
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: pages
+
+  deploy-pages:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy installer and update service
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5

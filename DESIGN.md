@@ -38,6 +38,9 @@
 - **Menus:** Full portrait screens, not tiny overlays.
 - **Pet Life:** Autonomous behavior has its own screen. Reading contains only
   reading actions and rewards.
+- **Updates:** A plain-language maintenance screen keeps install methods,
+  recovery, version details, and rollback out of normal pet play. Destructive
+  recovery actions always require a second confirmation.
 
 ## Controls
 
@@ -99,3 +102,5 @@
 | 2026-07-25 | Living-diorama rhythm | Visible wandering, drowsiness, dreams, and self-waking feel alive while remaining honest about step-based e-paper motion. |
 | 2026-07-25 | Separate Pet Life screen | Keeps reading rewards focused and makes autonomous behavior understandable and discoverable. |
 | 2026-07-25 | FreeInk hardware layer | Centralizes board profiles and X3 panel detection while leaving the pet engine and portrait UI independent of the hardware SDK. |
+| 2026-07-25 | Offline-first optional updates | Radios remain off during play; a deliberate maintenance screen offers SD, temporary local Wi-Fi, and signed online updates. |
+| 2026-07-25 | Dual-slot signed recovery | Inactive-slot writes, release signatures, delayed boot confirmation, and previous-slot rollback make updating approachable without treating failure as unrecoverable. |

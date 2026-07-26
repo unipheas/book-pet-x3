@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#171612">
+    <meta name="description"
+          content="Install Book Pet on an XTEINK X3 Developer Edition.">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+    <title>Install Book Pet X3</title>
+    <script type="module"
+      src="vendor/esp-web-tools-10.4.0/install-button.js">
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #171612;
+        --paper: #f4efd9;
+        --paper-2: #fffdf2;
+        --accent: #d85b35;
+        --accent-dark: #96391f;
+        --muted: #6e6758;
+        --line: #29261f;
+        --esp-tools-button-color: var(--accent);
+        --esp-tools-button-text-color: #fffdf2;
+        --esp-tools-button-border-radius: 10px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          linear-gradient(90deg, rgba(23,22,18,.035) 1px, transparent 1px) 0 0/22px 22px,
+          linear-gradient(rgba(23,22,18,.035) 1px, transparent 1px) 0 0/22px 22px,
+          var(--paper);
+        font: 17px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      main { width: min(940px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 64px; }
+      .hero, .card {
+        border: 3px solid var(--line);
+        background: var(--paper-2);
+        box-shadow: 8px 8px 0 var(--line);
+      }
+      .hero { padding: clamp(28px, 6vw, 64px); text-align: center; }
+      .pet {
+        margin: 0 auto 18px;
+        width: 168px;
+        white-space: pre;
+        font-size: 22px;
+        line-height: 1.08;
+        text-align: left;
+      }
+      .eyebrow { color: var(--accent-dark); font-weight: 800; letter-spacing: .12em; }
+      h1 { margin: 12px 0 10px; font-size: clamp(38px, 8vw, 76px); line-height: .95; }
+      .lede { max-width: 650px; margin: 0 auto 30px; color: var(--muted); }
+      esp-web-install-button { display: inline-block; }
+      esp-web-install-button button {
+        border: 3px solid var(--line);
+        background: var(--accent);
+        color: var(--paper-2);
+        padding: 16px 28px;
+        font: 800 19px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        cursor: pointer;
+        box-shadow: 5px 5px 0 var(--line);
+      }
+      esp-web-install-button button:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--line); }
+      esp-web-install-button button:hover { background: var(--accent-dark); }
+      esp-web-install-button button:focus-visible { outline: 4px solid var(--paper-2); outline-offset: -8px; }
+      .support { display: block; max-width: 620px; margin: 18px auto 0; font-size: 16px; color: var(--muted); }
+      .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; margin-top: 36px; }
+      .card { padding: 28px; }
+      h2 { margin: 0 0 16px; font-size: 23px; }
+      ol, ul { margin: 0; padding-left: 24px; }
+      li + li { margin-top: 10px; }
+      code { background: #e8e0c5; padding: 2px 5px; }
+      .warning { border-color: var(--accent-dark); box-shadow: 8px 8px 0 var(--accent-dark); }
+      footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 16px; }
+      a { color: var(--accent-dark); font-weight: 700; }
+      @media (max-width: 720px) {
+        main { padding-top: 20px; }
+        .grid { grid-template-columns: 1fr; }
+        .hero, .card { box-shadow: 5px 5px 0 var(--line); }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="pet" aria-hidden="true">  ▄████▄
+ █  ▄  █
+ █ ▀▀▀ █
+  ▀████▀</div>
+        <div class="eyebrow">XTEINK X3 DEVELOPER EDITION</div>
+        <h1>BOOK PET</h1>
+        <p class="lede">
+          A tiny, offline e-paper pet that eats pages. One safe first install,
+          then future updates can happen from a phone or SD card.
+        </p>
+        <esp-web-install-button manifest="manifest.json">
+          <button slot="activate">INSTALL BOOK PET</button>
+          <span slot="unsupported">
+            Open this page in desktop Chrome, Edge, or another browser with Web Serial.
+          </span>
+          <span slot="not-allowed">This installer needs a secure HTTPS connection.</span>
+        </esp-web-install-button>
+        <span class="support">
+          First install requires a desktop or laptop with the X3 pogo-pin USB
+          cable. iPhone and iPad browsers cannot perform the USB install.
+        </span>
+      </section>
+
+      <div class="grid">
+        <section class="card">
+          <h2>First install</h2>
+          <ol>
+            <li>Use an unlocked XTEINK X3 Developer/overseas edition.</li>
+            <li>Charge it, connect the magnetic USB cable, and wake it.</li>
+            <li>Press <strong>Install Book Pet</strong> and choose the X3 serial port.</li>
+            <li>Choose the clean-install option when prompted and keep it connected.</li>
+          </ol>
+        </section>
+
+        <section class="card">
+          <h2>Future updates</h2>
+          <ul>
+            <li>On Book Pet, open <strong>Menu → Updates</strong>.</li>
+            <li>Choose <strong>Phone / Browser</strong> for a no-app wireless update.</li>
+            <li>Or copy <code>UPDATE.BIN</code> to <code>/BOOKPET</code> on an SD card.</li>
+            <li>A failed update keeps the working firmware and pet save intact.</li>
+          </ul>
+        </section>
+
+        <section class="card warning">
+          <h2>Before you flash</h2>
+          <p>
+            This replaces the current device firmware. It is not for X4,
+            retail-locked X3 hardware, or other ESP32-C3 devices. Back up books
+            or files you care about before a first install.
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>Recovery</h2>
+          <p>
+            Hold the front <strong>Back</strong> button while powering on to
+            open recovery and updates. Book Pet can also restore the previous
+            working firmware after an update.
+          </p>
+        </section>
+      </div>
+
+      <footer>
+        Open source under MIT ·
+        <a href="https://github.com/unipheas/book-pet-x3">source and help</a> ·
+        no account, telemetry, cloud, or AI required
+      </footer>
+    </main>
+  </body>
+</html>

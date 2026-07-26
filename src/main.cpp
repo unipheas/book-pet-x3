@@ -3,6 +3,7 @@
 #include <EInkDisplay.h>
 #include <InputManager.h>
 #include <PowerManager.h>
+#include <SDCardManager.h>
 #include <SPI.h>
 #include <XteinkDetect.h>
 #include <driver/gpio.h>
@@ -10,9 +11,22 @@
 #include <esp_system.h>
 
 #include "Canvas.h"
+#include "BookPetVersion.h"
+#include "FirmwareUpdater.h"
 #include "PetRules.h"
 #include "PetSprite.h"
 #include "PetState.h"
+#ifdef FILE_READ
+#undef FILE_READ
+#endif
+#ifdef FILE_WRITE
+#undef FILE_WRITE
+#endif
+#include "UpdatePortal.h"
+
+extern "C" bool verifyRollbackLater() {
+  return true;
+}
 
 namespace {
 // GPIO 13 is the X3's proven soft-power latch. FreeInk does not currently
@@ -23,7 +37,10 @@ constexpr uint32_t AWAKE_MOMENT_MS = 15'000;
 constexpr uint32_t DROWSY_AFTER_MS = 2 * 60'000;
 constexpr uint32_t NATURAL_SLEEP_MS = 3 * 60'000;
 constexpr uint64_t AUTONOMY_WAKE_US = 15ULL * 60ULL * 1'000'000ULL;
+constexpr uint32_t OTA_HEALTHY_RUNTIME_MS = 5'000;
 constexpr uint8_t FULL_REFRESH_EVERY = 12;
+constexpr uint8_t MENU_ITEM_COUNT = 10;
+constexpr uint8_t UPDATE_ITEM_COUNT = 4;
 
 enum class Screen : uint8_t {
   Home,
@@ -36,7 +53,14 @@ enum class Screen : uint8_t {
   Behavior,
   Stats,
   Pets,
+  Updates,
   PageCatch
+};
+
+enum class UpdateView : uint8_t {
+  Menu,
+  Status,
+  RollbackConfirm
 };
 
 EInkDisplay display(
@@ -53,6 +77,15 @@ uint8_t readingPhase = 0;
 uint16_t pendingPages = 0;
 uint8_t petCursor = 0;
 uint8_t toyCursor = 0;
+uint8_t updateIndex = 0;
+UpdateView updateView = UpdateView::Menu;
+char updateStatusTitle[48] = "READY";
+char updateStatusDetail[160] = "Choose an update method";
+uint8_t updateProgress = 0;
+bool recoveryBoot = false;
+bool displayReady = false;
+bool otaConfirmPending = false;
+uint32_t otaConfirmAfterMs = 0;
 bool drowsyShown = false;
 uint8_t gamePhase = 0;
 uint8_t playerLane = 1;
@@ -62,6 +95,32 @@ bool gameCaught = false;
 uint32_t lastInputMs = 0;
 uint32_t lastAmbientMs = 0;
 uint8_t fastRefreshes = 0;
+
+void render(bool forceFull = false);
+
+void confirmHealthyUpdateIfDue() {
+  if (!otaConfirmPending) return;
+  if (static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
+    return;
+  }
+  if (bookpet::FirmwareUpdater::confirmRunningImage()) {
+    otaConfirmPending = false;
+    Serial.println("[bookpet] OTA image confirmed after healthy runtime");
+  } else {
+    otaConfirmAfterMs = millis() + OTA_HEALTHY_RUNTIME_MS;
+    Serial.println("[bookpet] OTA image confirmation failed; will retry");
+  }
+}
+
+// The X3 display and SD card share SCLK/MOSI, but only the card uses MISO.
+// Arduino ignores new SPI pins after the bus has started, so MISO must be
+// attached before FreeInk starts the display or later SD mounts read 0xFF.
+void beginDisplayHardware() {
+  SPI.end();
+  SPI.begin(BoardConfig::ACTIVE.display.sclk, BoardConfig::ACTIVE.sd.miso,
+            BoardConfig::ACTIVE.display.mosi, BoardConfig::ACTIVE.display.cs);
+  display.begin();
+}
 
 const char* actionName(PetAction action) {
   switch (action) {
@@ -270,10 +329,10 @@ void drawTitle(Canvas& c, const char* title, const char* subtitle) {
 void drawMenu(Canvas& c) {
   static constexpr const char* items[] = {
       "HOME", "READING", "PANTRY", "TOYS", "PET LIFE",
-      "FRAGMENTS", "DIARY", "STATS", "PETS"};
+      "FRAGMENTS", "DIARY", "STATS", "PETS", "UPDATES"};
   drawTitle(c, "PET MENU", "SIDE BUTTONS MOVE  /  OK SELECT");
-  for (int i = 0; i < 9; ++i) {
-    const int y = 108 + i * 67;
+  for (int i = 0; i < MENU_ITEM_COUNT; ++i) {
+    const int y = 108 + i * 60;
     if (menuIndex == i) c.rect(42, y - 10, 444, 46, true);
     if (menuIndex == i) {
       for (int yy = y - 5; yy < y + 27; ++yy)
@@ -469,6 +528,210 @@ void drawPets(Canvas& c) {
   c.text(34, 744, "BACK MENU", 1);
 }
 
+void drawWrappedCentered(Canvas& c, int y, const char* text, uint8_t scale,
+                         size_t maxChars, int lineHeight,
+                         uint8_t maxLines = 4) {
+  if (!text || !text[0]) return;
+  const char* cursor = text;
+  for (uint8_t line = 0; line < maxLines && *cursor; ++line) {
+    while (*cursor == ' ') ++cursor;
+    const size_t remaining = strlen(cursor);
+    size_t take = remaining < maxChars ? remaining : maxChars;
+    if (take < remaining) {
+      size_t split = take;
+      while (split > 0 && cursor[split] != ' ') --split;
+      if (split > 0) take = split;
+    }
+    char buffer[48] = {};
+    const size_t copy =
+        take < sizeof(buffer) - 1 ? take : sizeof(buffer) - 1;
+    memcpy(buffer, cursor, copy);
+    centeredText(c, y + line * lineHeight, buffer, scale);
+    cursor += take;
+  }
+}
+
+void drawUpdateMenu(Canvas& c) {
+  static constexpr const char* items[] = {
+      "UPDATE FROM SD", "PHONE / BROWSER", "RESTORE PREVIOUS", "ABOUT"};
+  static constexpr const char* help[] = {
+      "COPY UPDATE.BIN TO /BOOKPET ON THE SD CARD",
+      "CONNECT A PHONE TO BOOK PET - NO APP NEEDED",
+      "RETURN TO THE LAST WORKING FIRMWARE",
+      "VERSION, SIGNATURE, AND RECOVERY DETAILS"};
+  drawTitle(c, recoveryBoot ? "RECOVERY & UPDATES" : "UPDATE BOOK PET",
+            "YOUR PET DATA STAYS SAFE");
+  for (int i = 0; i < UPDATE_ITEM_COUNT; ++i) {
+    const int y = 140 + i * 105;
+    if (updateIndex == i) c.rect(42, y - 17, 444, 62, true);
+    if (updateIndex == i) {
+      for (int yy = y - 8; yy < y + 35; ++yy)
+        for (int xx = 55; xx < 473; ++xx) c.pixel(xx, yy, false);
+    }
+    c.text(68, y, items[i], 2);
+  }
+  drawWrappedCentered(c, 600, help[updateIndex], 1, 42, 22, 2);
+  c.text(34, 744, "BACK MENU", 1);
+  c.text(420, 744, "OK", 1);
+}
+
+void drawUpdateStatus(Canvas& c) {
+  drawTitle(c, updateStatusTitle, "FIRMWARE UPDATE");
+  drawWrappedCentered(c, 145, updateStatusDetail, 2, 34, 34, 5);
+  if (updateProgress > 0) {
+    c.rect(62, 350, 404, 34);
+    const int fill = (396 * updateProgress) / 100;
+    if (fill > 0) c.rect(66, 354, fill, 26, true);
+    char progress[16];
+    snprintf(progress, sizeof(progress), "%u%%", updateProgress);
+    centeredText(c, 404, progress, 2);
+  }
+  char version[40];
+  snprintf(version, sizeof(version), "CURRENT VERSION %s", BOOKPET_VERSION);
+  centeredText(c, 530, version, 2);
+  centeredText(c, 575,
+               bookpet::FirmwareUpdater::requiresSignature()
+                   ? "OFFICIAL SIGNED UPDATES ONLY"
+                   : "DEVELOPER BUILD - UNSIGNED ALLOWED",
+               1);
+  centeredText(c, 650, "OK OR BACK TO RETURN", 1);
+  c.text(34, 744, "BACK", 1);
+}
+
+void drawPhoneUpdate(Canvas& c) {
+  drawTitle(c, "PHONE / BROWSER", "BOOK PET MADE A PRIVATE WI-FI NETWORK");
+  c.text(48, 135, "1. JOIN THIS WI-FI", 2);
+  centeredText(c, 185, bookpet::updatePortal.ssid().c_str(), 3);
+  c.text(48, 255, "2. PASSWORD", 2);
+  centeredText(c, 305, bookpet::updatePortal.password().c_str(), 3);
+  c.text(48, 375, "3. OPEN IN YOUR BROWSER", 2);
+  centeredText(c, 425, "192.168.4.1", 3);
+  drawWrappedCentered(c, 505, updateStatusDetail, 1, 42, 22, 3);
+  centeredText(c, 625, "KEEP BOOK PET POWERED DURING INSTALL", 1);
+  c.text(34, 744, "BACK STOP", 1);
+}
+
+void drawRollbackConfirm(Canvas& c) {
+  drawTitle(c, "RESTORE PREVIOUS?", "RECOVERY ROLLBACK");
+  centeredText(c, 165, "THIS RESTARTS BOOK PET", 3);
+  centeredText(c, 225, "USING THE LAST FIRMWARE", 2);
+  centeredText(c, 285, "YOUR PET DATA WILL STAY", 2);
+  c.rect(62, 390, 404, 110);
+  centeredText(c, 420, "PRESS OK AGAIN", 3);
+  centeredText(c, 465, "TO RESTORE", 2);
+  c.text(34, 744, "BACK CANCEL", 1);
+  c.text(420, 744, "OK", 1);
+}
+
+void drawUpdates(Canvas& c) {
+  if (bookpet::updatePortal.active()) {
+    drawPhoneUpdate(c);
+  } else if (updateView == UpdateView::RollbackConfirm) {
+    drawRollbackConfirm(c);
+  } else if (updateView == UpdateView::Status) {
+    drawUpdateStatus(c);
+  } else {
+    drawUpdateMenu(c);
+  }
+}
+
+void setUpdateStatus(const char* title, const char* detail,
+                     uint8_t progress = 0, bool redraw = true) {
+  snprintf(updateStatusTitle, sizeof(updateStatusTitle), "%s",
+           title ? title : "UPDATE");
+  snprintf(updateStatusDetail, sizeof(updateStatusDetail), "%s",
+           detail ? detail : "");
+  updateProgress = progress;
+  updateView = UpdateView::Status;
+  if (redraw && displayReady && screen == Screen::Updates) render();
+}
+
+void onPortalStatus(const char* title, const char* detail, uint8_t progress) {
+  snprintf(updateStatusTitle, sizeof(updateStatusTitle), "%s",
+           title ? title : "PHONE UPDATE");
+  snprintf(updateStatusDetail, sizeof(updateStatusDetail), "%s",
+           detail ? detail : "");
+  updateProgress = progress;
+  if (displayReady && screen == Screen::Updates) render();
+}
+
+void restoreDisplayAfterSd() {
+  beginDisplayHardware();
+  display.requestResync();
+}
+
+String readSdSha256(const char* firmwarePath) {
+  String sidecarPath = String(firmwarePath) + ".sha256";
+  String value = SdMan.readFile(sidecarPath.c_str());
+  if (value.isEmpty()) value = SdMan.readFile("/BOOKPET/UPDATE.SHA256");
+  value.trim();
+  const int separator = value.indexOf(' ');
+  if (separator > 0) value = value.substring(0, separator);
+  value.toLowerCase();
+  return value.length() == 64 ? value : String();
+}
+
+void performSdUpdate() {
+  setUpdateStatus("CHECKING SD CARD",
+                  "Looking for /BOOKPET/UPDATE.BIN", 0);
+  if (!SdMan.begin()) {
+    restoreDisplayAfterSd();
+    setUpdateStatus("SD CARD NOT FOUND",
+                    "Insert a FAT32 or exFAT card and try again");
+    return;
+  }
+
+  static constexpr const char* paths[] = {
+      "/BOOKPET/UPDATE.BIN", "/BOOKPET/book-pet-x3-update.bin",
+      "/book-pet-x3-update.bin", "/update.bin"};
+  const char* selectedPath = nullptr;
+  for (const char* path : paths) {
+    if (SdMan.exists(path)) {
+      selectedPath = path;
+      break;
+    }
+  }
+  if (!selectedPath) {
+    restoreDisplayAfterSd();
+    setUpdateStatus("UPDATE FILE NOT FOUND",
+                    "Copy UPDATE.BIN into a BOOKPET folder on the SD card");
+    return;
+  }
+
+  FsFile firmware = SdMan.open(selectedPath, O_RDONLY);
+  if (!firmware) {
+    restoreDisplayAfterSd();
+    setUpdateStatus("SD CARD ERROR", "The update file could not be opened");
+    return;
+  }
+  const uint64_t fileSize = firmware.fileSize();
+  if (fileSize > SIZE_MAX) {
+    firmware.close();
+    restoreDisplayAfterSd();
+    setUpdateStatus("UPDATE FILE TOO LARGE",
+                    "This file is not Book Pet firmware");
+    return;
+  }
+  const String sha256 = readSdSha256(selectedPath);
+  pet.save();
+  setUpdateStatus("INSTALLING FROM SD",
+                  "Verifying and writing the inactive recovery slot", 1);
+  const bool installed = bookpet::firmwareUpdater.install(
+      firmware, static_cast<size_t>(fileSize),
+      sha256.isEmpty() ? nullptr : sha256.c_str());
+  firmware.close();
+  restoreDisplayAfterSd();
+  if (!installed) {
+    setUpdateStatus("SD UPDATE FAILED", bookpet::firmwareUpdater.error());
+    return;
+  }
+
+  setUpdateStatus("UPDATE VERIFIED",
+                  "Your pet is safe. Restarting into the new version", 100);
+  delay(2500);
+  ESP.restart();
+}
+
 const char* fragmentName(FragmentKind kind) {
   switch (kind) {
     case FragmentKind::Story: return "STORY";
@@ -520,7 +783,7 @@ void drawPageCatch(Canvas& c) {
   c.text(34, 744, "BACK HOME", 1);
 }
 
-void render(bool forceFull = false) {
+void render(bool forceFull) {
   display.clearScreen();
   Canvas canvas(display.getFrameBuffer(), display.getDisplayWidth(),
                 display.getDisplayHeight(), Canvas::Rotation::CounterClockwise);
@@ -535,6 +798,7 @@ void render(bool forceFull = false) {
     case Screen::Diary: drawDiary(canvas); break;
     case Screen::Stats: drawStats(canvas); break;
     case Screen::Pets: drawPets(canvas); break;
+    case Screen::Updates: drawUpdates(canvas); break;
     case Screen::PageCatch: drawPageCatch(canvas); break;
   }
   const bool doFull = forceFull || fastRefreshes >= FULL_REFRESH_EVERY;
@@ -544,6 +808,15 @@ void render(bool forceFull = false) {
 }
 
 void enterDeepSleep() {
+  // Do not let an immediate power hold bypass the post-update health window.
+  // Wait out the remaining few seconds, then make one normal confirmation
+  // attempt. If confirmation fails, leave the image pending so the bootloader
+  // can still roll back on a later unhealthy boot.
+  while (otaConfirmPending &&
+         static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
+    delay(10);
+  }
+  confirmHealthyUpdateIfDue();
   Serial.printf("[bookpet] deep sleep pet_sleeping=%u\n",
                 pet.state().sleeping);
   Serial.flush();
@@ -604,8 +877,7 @@ void enterDreamSleep() {
       pet.wake();
     }
 
-    SPI.end();
-    display.begin();
+    beginDisplayHardware();
     display.requestResync();
     screen = Screen::Home;
     const bool cleanupRefresh =
@@ -623,6 +895,21 @@ void enterDreamSleep() {
 }
 
 void goBack() {
+  if (screen == Screen::Updates && bookpet::updatePortal.active()) {
+    if (!bookpet::updatePortal.safeToStop()) {
+      onPortalStatus("UPDATE IN PROGRESS",
+                     "Please wait until Book Pet finishes safely",
+                     bookpet::updatePortal.progress());
+      return;
+    }
+    bookpet::updatePortal.stop();
+    updateView = UpdateView::Menu;
+    return;
+  }
+  if (screen == Screen::Updates && updateView != UpdateView::Menu) {
+    updateView = UpdateView::Menu;
+    return;
+  }
   if (screen == Screen::Home) {
     screen = Screen::Menu;
   } else if (screen == Screen::Menu) {
@@ -648,6 +935,10 @@ void selectMenuItem() {
     case 6: screen = Screen::Diary; break;
     case 7: screen = Screen::Stats; break;
     case 8: screen = Screen::Pets; break;
+    case 9:
+      updateView = UpdateView::Menu;
+      screen = Screen::Updates;
+      break;
   }
 }
 
@@ -683,11 +974,11 @@ void handleInput() {
     }
   } else if (screen == Screen::Menu) {
     if (buttons.wasPressed(InputManager::BTN_UP)) {
-      menuIndex = (menuIndex + 8) % 9;
+      menuIndex = (menuIndex + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-      menuIndex = (menuIndex + 1) % 9;
+      menuIndex = (menuIndex + 1) % MENU_ITEM_COUNT;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
@@ -792,6 +1083,62 @@ void handleInput() {
              buttons.wasPressed(InputManager::BTN_CONFIRM)) {
     pet.toggleAutonomy();
     changed = true;
+  } else if (screen == Screen::Updates) {
+    if (updateView == UpdateView::Status) {
+      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+        updateView = UpdateView::Menu;
+        changed = true;
+      }
+    } else if (updateView == UpdateView::RollbackConfirm) {
+      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+        setUpdateStatus("RESTORING PREVIOUS",
+                        "Restarting with the last working firmware", 0);
+        delay(1200);
+        if (!bookpet::FirmwareUpdater::rollbackAndReboot()) {
+          setUpdateStatus("RESTORE FAILED",
+                          "The previous firmware could not be selected");
+        }
+        changed = true;
+      }
+    } else {
+      if (buttons.wasPressed(InputManager::BTN_UP)) {
+        updateIndex =
+            (updateIndex + UPDATE_ITEM_COUNT - 1) % UPDATE_ITEM_COUNT;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+        updateIndex = (updateIndex + 1) % UPDATE_ITEM_COUNT;
+        changed = true;
+      }
+      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+        if (updateIndex == 0) {
+          performSdUpdate();
+        } else if (updateIndex == 1) {
+          updateView = UpdateView::Status;
+          if (!bookpet::updatePortal.start(onPortalStatus)) {
+            setUpdateStatus("PHONE UPDATE FAILED",
+                            bookpet::updatePortal.detail());
+          }
+        } else if (updateIndex == 2) {
+          if (bookpet::FirmwareUpdater::rollbackAvailable()) {
+            updateView = UpdateView::RollbackConfirm;
+          } else {
+            setUpdateStatus("NO PREVIOUS VERSION",
+                            "Install one update before using rollback");
+          }
+        } else {
+          char detail[144];
+          snprintf(detail, sizeof(detail),
+                   "Book Pet %s. %s Hold Back while powering on for recovery.",
+                   BOOKPET_VERSION,
+                   bookpet::FirmwareUpdater::requiresSignature()
+                       ? "Official updates require a valid signature."
+                       : "This developer build accepts unsigned firmware.");
+          setUpdateStatus("ABOUT BOOK PET", detail);
+        }
+        changed = true;
+      }
+    }
   }
   if (changed) {
     lastInputMs = millis();
@@ -826,17 +1173,47 @@ void setup() {
                 static_cast<unsigned>(panelVerdict));
   BoardConfig::releaseSdRail();
   buttons.begin();
+  for (uint8_t sample = 0; sample < 4; ++sample) {
+    buttons.update();
+    delay(25);
+  }
+  recoveryBoot = buttons.isPressed(InputManager::BTN_BACK);
+  if (recoveryBoot) {
+    Serial.println("[bookpet] recovery mode requested by Back button");
+    screen = Screen::Updates;
+    updateView = UpdateView::Menu;
+  }
   pet.begin();
   pet.wake();
-  display.begin();
+  beginDisplayHardware();
   display.requestResync();
   lastInputMs = millis();
   lastAmbientMs = lastInputMs;
   render(true);
+  displayReady = true;
+  // A power-button wake can still be physically held after the first screen
+  // appears. Consume that wake gesture before loop() treats it as a new
+  // long-press and immediately sends recovery (or the pet) back to sleep.
+  freeink::PowerManager::waitForPowerButtonRelease();
+  buttons.update();
+  otaConfirmPending =
+      bookpet::FirmwareUpdater::runningImagePendingVerify();
+  if (otaConfirmPending) {
+    otaConfirmAfterMs = millis() + OTA_HEALTHY_RUNTIME_MS;
+    Serial.println(
+        "[bookpet] OTA image pending five-second health confirmation");
+  }
 }
 
 void loop() {
   buttons.update();
+  confirmHealthyUpdateIfDue();
+  if (bookpet::updatePortal.active()) {
+    bookpet::updatePortal.handle();
+    handleInput();
+    delay(10);
+    return;
+  }
   if (pet.tick(millis()) && screen == Screen::Home) render();
   handleInput();
 

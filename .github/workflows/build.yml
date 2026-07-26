@@ -13,25 +13,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.x"
 
       - name: Install PlatformIO
         run: pip install platformio==6.1.19
 
+      - name: Validate release invariants
+        run: python scripts/validate_project.py
+
       - name: Build
-        run: pio run
+        run: |
+          pio run -e xteink_x3
+          pio run -e xteink_x3_release
 
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: book-pet-x3-firmware
+          name: book-pet-x3-signature-enforcing-firmware
           path: |
-            .pio/build/xteink_x3/firmware.bin
-            .pio/build/xteink_x3/bootloader.bin
-            .pio/build/xteink_x3/partitions.bin
+            .pio/build/xteink_x3_release/firmware.bin
+            .pio/build/xteink_x3_release/bootloader.bin
+            .pio/build/xteink_x3_release/partitions.bin

@@ -4,6 +4,25 @@ All notable changes to Book Pet are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-25
+
+### Added
+
+- Added an on-device Updates screen with SD card, phone/browser, About, and
+  previous-version restore options.
+- Added a temporary WPA-protected local update portal that needs no phone app
+  and never saves home Wi-Fi credentials.
+- Added signed HTTPS updates from the official Book Pet release manifest.
+- Added dual-slot OTA installation, deferred boot confirmation, and rollback to
+  the previous working firmware.
+- Added hold-Back-at-power-on recovery mode.
+- Added a one-click ESP Web Tools installer and automated GitHub Pages update
+  service.
+- Added reproducible RSA-4096 signing, factory-image packaging, checksums, and
+  tag-driven GitHub release automation.
+- Added an approval-protected signing environment and isolated signing job so
+  build dependencies never share a runner with the private release key.
+
 ### Changed
 
 - Migrated the X3 hardware layer from the legacy community SDK to a pinned
@@ -12,6 +31,44 @@ All notable changes to Book Pet are documented here.
   FreeInk board and power abstractions.
 - Added startup detection for both original and newer X3 display-controller
   revisions while preserving the existing portrait UI and pet save data.
+- Official release builds now reject local and SD firmware without the Book Pet
+  release signature. Developer builds remain friendly to unsigned local work.
+- New OTA slots now remain pending through a five-second healthy runtime window
+  instead of being confirmed immediately after the first render.
+- A power hold during that window now waits for the normal health deadline
+  instead of confirming the new slot early.
+
+### Fixed
+
+- Fixed X3 SD-card detection after display startup by preserving the shared
+  SPI bus's MISO connection across boot, wake, and display recovery.
+- Replaced a broken framework signing hook with fail-closed Book Pet RSA
+  verification that retains and checks the complete 512-byte release signature
+  before activating an OTA slot.
+- Recovery mode now consumes the power-on press before accepting new input, so
+  the recovery screen no longer immediately returns to sleep.
+- Reopening the phone updater no longer registers duplicate web routes, and
+  status responses safely handle unusual Wi-Fi names.
+- Phone updates now serialize all install operations, use a high-entropy access
+  password plus per-session request token, and erase home Wi-Fi credentials
+  after every online check.
+- Release packaging now refuses unexpected files so local test artifacts cannot
+  be swept into a published release.
+- The USB installer now self-hosts the complete pinned ESP Web Tools module
+  tree under a restrictive same-origin content-security policy.
+- Release tags must point to commits already on `main`, and release packaging
+  runs without persisted repository credentials or newly downloaded tools.
+- Release builds install a hash-locked PlatformIO dependency set and verify the
+  pinned pioarduino platform archive before compilation.
+
+### Verified
+
+- Installed a valid signed update from SD and through the local browser portal
+  on X3 hardware.
+- Rejected a deliberately corrupted RSA signature without rebooting or changing
+  the running firmware.
+- Restored the previous OTA slot without losing pet progress.
+- Entered recovery by holding Back at power-on and confirmed it remains open.
 
 ## [0.4.0] - 2026-07-25
 
@@ -88,3 +145,5 @@ All notable changes to Book Pet are documented here.
 [0.2.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.2.0
 [0.3.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.3.0
 [0.4.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.4.0
+[0.5.0]: https://github.com/unipheas/book-pet-x3/releases/tag/v0.5.0
+[Unreleased]: https://github.com/unipheas/book-pet-x3/compare/v0.5.0...HEAD
