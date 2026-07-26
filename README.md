@@ -194,7 +194,11 @@ platformio.ini   Reproducible ESP32-C3 build configuration
 - Wake visibly leaves the Dreaming state: verified.
 - Autonomous wandering, drowsiness, sleep, dreams, and self-wake: verified on
   X3 hardware for v0.4.
-- FreeInk migration: compiler-verified; physical X3 validation pending.
+- FreeInk migration: portrait rendering, autonomous movement, repeated button
+  input, manual Rest/wake, and natural sleep/light-sleep wake verified on an
+  original-controller X3.
+- The 15-minute timer-driven dream/self-wake cycle remains to be rechecked on
+  FreeInk; it was verified on the preceding v0.4 hardware layer.
 - Longer-term ghosting, charging-cycle persistence, and battery-life testing
   remain to be measured during normal use.
 
