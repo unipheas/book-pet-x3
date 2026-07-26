@@ -2,8 +2,8 @@
 
 ## Product context
 
-- **What this is:** A standalone portrait virtual pet for the XTEINK X3
-  Developer Edition.
+- **What this is:** A standalone portrait virtual pet and offline EPUB reader
+  for the XTEINK X3 Developer Edition.
 - **Who it is for:** People who want a calm pocket companion and makers who
   enjoy understandable embedded projects.
 - **Project type:** One-bit e-paper game and persistent ambient object.
@@ -35,7 +35,12 @@
 - **Needs (438–600):** Four compact meters: Full, Joy, Rest, Clean.
 - **Action dock (612–680):** Feed, Play, Clean, Rest with one strong selection state.
 - **Controls (736–792):** Persistent button hints.
-- **Menus:** Full portrait screens, not tiny overlays.
+- **Main navigation:** Two large doors only—**My Pet** and **Books**.
+- **Pet Nook:** Pantry, Toy Box, and Diary.
+- **Pet Settings:** Pet Life, Stats, Choose Pet, and Updates.
+- **Books:** Continue Reading, Library, and Reading Rewards.
+- **Menus:** Full portrait screens, not tiny overlays. Every submenu shows
+  where Back returns.
 - **Pet Life:** Autonomous behavior has its own screen. Reading contains only
   reading actions and rewards.
 - **Updates:** A plain-language maintenance screen keeps install methods,
@@ -57,16 +62,24 @@
 - **Expression:** Pose, ears, eyes, mouth, and two or three emphasis marks.
 - **Thoughts:** Short deterministic lines driven by needs, progress, recent
   actions, and personality. They must never claim to be sentient or online.
-- **Economy:** Page Catch awards Page Bites plus Story, Mystery, Science, and
-  Adventure fragments. Page Bites can be baked into food. Logged pages earn
-  food directly, and finished books unlock toys and pets. Care, play, and
-  reading award XP; levels change the current pet's growth stage.
+- **Economy:** A newly completed reader page awards one Page Bite and one XP.
+  Every ten lifetime pages awards one food. Page Bites can be baked into food,
+  and a book's first completion unlocks a toy and can unlock a pet. Page Catch
+  is play—it awards joy and a small amount of XP, never reading currency.
 - **Memory:** A three-entry diary records the latest meaningful care and play
   moments rather than logging every simulation tick.
 - **Personality:** Curious, Cozy, or Bold emerges from the balance of play,
   feeding, cleaning, and rest. It changes thoughts without claiming sentience.
-- **Reading:** People log real pages after reading. Each ten lifetime pages
-  earns one food; finishing a book discovers a toy and can unlock a new pet.
+- **Reading:** FreeInkBook opens EPUB files from `/BOOKS` on the SD card,
+  streams and paginates chapters, and caches layout on the card. Stable
+  `(spine, charStart)` locations preserve resume position and ensure that
+  revisiting a page cannot award its reward again. The first completion of a
+  book discovers a toy and can unlock a new pet. A content-derived 64-bit book
+  identity keeps progress across renames and isolates replaced files. A
+  replayable reward transaction keeps the book ledger and pet state consistent
+  across an interrupted save. Per-book records live as atomic root-level files
+  in the X3's dedicated internal filesystem rather than consuming one NVS key
+  per book.
 - **Pet family:** Byte is joined by Mote and Pip, each with an original
   one-bit silhouette and a book-reading unlock path.
 
@@ -95,7 +108,7 @@
 | 2026-07-25 | Original 8-bit creature | Creates a real pet identity without copying Tamagotchi artwork. |
 | 2026-07-25 | Offline thought engine | Personality without accounts, radios, cloud cost, or deceptive AI claims. |
 | 2026-07-25 | Page Bite economy | Gives the pet a book-world metaphor without making the pet itself a book. |
-| 2026-07-25 | Memory-game page hunting | Makes earning pages active, tactile, and feasible on slow e-paper. |
+| 2026-07-25 | Page Catch as pet play | Adds an active tactile game that is feasible on slow e-paper without pretending game actions are real reading. |
 | 2026-07-25 | Care-shaped personality | Creates apparent inner life using transparent offline rules. |
 | 2026-07-25 | Reading earns care resources | Connects the virtual-pet economy to real-world reading without a phone or account. |
 | 2026-07-25 | Step-based ambient moments | Makes the retained e-paper scene feel alive while bounding battery use and ghosting. |
@@ -104,3 +117,8 @@
 | 2026-07-25 | FreeInk hardware layer | Centralizes board profiles and X3 panel detection while leaving the pet engine and portrait UI independent of the hardware SDK. |
 | 2026-07-25 | Offline-first optional updates | Radios remain off during play; a deliberate maintenance screen offers SD, temporary local Wi-Fi, and signed online updates. |
 | 2026-07-25 | Dual-slot signed recovery | Inactive-slot writes, release signatures, delayed boot confirmation, and previous-slot rollback make updating approachable without treating failure as unrecoverable. |
+| 2026-07-26 | Two-door information architecture | My Pet and Books communicate the product immediately; Pet Nook and Pet Settings keep secondary features understandable. |
+| 2026-07-26 | Reader-verified progression | EPUB page anchors replace manual page logging so reading progress, XP, food, and completion rewards are earned once and resume safely. |
+| 2026-07-26 | Retire fragments | A single Page Bite economy is easier to understand; legacy fragments migrate into Page Bites. |
+| 2026-07-26 | Content-based book identity | Renames preserve progress while replaced EPUBs cannot reuse old page caches or rewards. |
+| 2026-07-26 | Replayable reading rewards | A pending transaction is recorded before pet state changes so interrupted saves can finish without loss or duplication. |

@@ -218,6 +218,76 @@ def check_release_output_allowlist() -> None:
         )
 
 
+def check_reader_invariants() -> None:
+    config = (ROOT / "platformio.ini").read_text(encoding="utf-8")
+    main = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8")
+    state = (ROOT / "src" / "PetState.h").read_text(encoding="utf-8")
+    progress = (ROOT / "src" / "ReadingProgress.cpp").read_text(
+        encoding="utf-8"
+    )
+    reader = (ROOT / "src" / "BookReader.cpp").read_text(encoding="utf-8")
+    docs = (
+        (ROOT / "README.md").read_text(encoding="utf-8")
+        + (ROOT / "docs" / "BOOKS.md").read_text(encoding="utf-8")
+    )
+    workflow = (
+        ROOT / ".github" / "workflows" / "build.yml"
+    ).read_text(encoding="utf-8")
+    required_config = (
+        "-DFREEINK_BOOK_SMALL=1",
+        "FreeInkBook=symlink://freeink-sdk/libs/book/FreeInkBook",
+        "FreeInkUI=symlink://freeink-sdk/libs/ui/FreeInkUI",
+    )
+    if any(token not in config for token in required_config):
+        raise SystemExit(
+            "The X3 reader must use FreeInkBook's small-memory profile"
+        )
+    required_navigation = (
+        '"MY PET"',
+        '"BOOKS"',
+        '"PET NOOK"',
+        '"PET SETTINGS"',
+        "Screen::Library",
+        "Screen::Reader",
+    )
+    if any(token not in main for token in required_navigation):
+        raise SystemExit("The v1 two-section reader navigation has drifted")
+    forbidden = ("LOG PAGES", "FINISH THIS BOOK", "PAGE FRAGMENTS")
+    if any(token in main for token in forbidden):
+        raise SystemExit("Manual reading or fragment UI returned unexpectedly")
+    if "uint32_t version = 6;" not in state:
+        raise SystemExit("Pet save migration version must remain explicit")
+    if "isForwardReadingPosition" not in progress:
+        raise SystemExit("Reading rewards must reject duplicate page locations")
+    reader_safety = (
+        "uint64_t BookReader::hashContainer",
+        "cache_.cancelWrite()",
+        "Chapter cache could not be rebuilt",
+        "buildStorage_",
+    )
+    if any(token not in reader for token in reader_safety):
+        raise SystemExit(
+            "EPUB identity, cache recovery, or X3 memory lending has drifted"
+        )
+    if (
+        "pendingTransaction" not in progress
+        or "completeReadingTransaction" not in main
+    ):
+        raise SystemExit("Reading rewards must remain interruption-safe")
+    if (
+        "SPIFFS.begin" not in progress
+        or 'snprintf(out, cap, "/r%c%s"' not in progress
+        or "SPIFFS.mkdir" in progress
+    ):
+        raise SystemExit(
+            "Per-book progress must use root-level files on flat SPIFFS"
+        )
+    if "last eight" in docs.lower() or "up to eight" in docs.lower():
+        raise SystemExit("Reader documentation still describes the old LRU")
+    if "FreeInkBook/test/host/run.sh" not in workflow:
+        raise SystemExit("CI must run the FreeInkBook EPUB regression suite")
+
+
 def check_release_workflow_security() -> None:
     release = (
         ROOT / ".github" / "workflows" / "release.yml"
@@ -271,6 +341,7 @@ def main() -> None:
     check_boot_release_guard()
     check_update_portal_hardening()
     check_release_output_allowlist()
+    check_reader_invariants()
     check_release_workflow_security()
     print("Book Pet release invariants are valid")
 

@@ -27,6 +27,9 @@ jobs:
       - name: Validate release invariants
         run: python scripts/validate_project.py
 
+      - name: Test FreeInk EPUB engine
+        run: freeink-sdk/libs/book/FreeInkBook/test/host/run.sh
+
       - name: Build
         run: |
           pio run -e xteink_x3

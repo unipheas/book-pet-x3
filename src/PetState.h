@@ -14,18 +14,25 @@ enum class PetMood : uint8_t {
 };
 enum class Personality : uint8_t { Curious, Cozy, Bold };
 enum class LifeStage : uint8_t { Hatchling, Sprout, Familiar };
-enum class FragmentKind : uint8_t { Story, Mystery, Science, Adventure };
 enum class PetSpecies : uint8_t { Byte, Mote, Pip };
 enum class ToyKind : uint8_t { Ball, Bell, Blocks, Kite };
 
 struct PetState {
-  uint32_t version = 5;
+  uint32_t version = 6;
   uint32_t activeMinutes = 0;
   uint32_t lifetimePages = 0;
   uint16_t interactions = 0;
   uint16_t experience = 0;
   uint16_t pageBites = 0;
-  uint16_t fragments[4] = {0, 0, 0, 0};
+  // v6 reuses the retired fragment bytes for an idempotent reading-reward
+  // transaction. The legacy view keeps old saves easy to migrate.
+  union {
+    uint16_t fragments[4] = {0, 0, 0, 0};
+    struct __attribute__((packed)) {
+      uint32_t lastReadingTransaction;
+      uint32_t readingReserved;
+    };
+  };
   uint16_t feedCount = 0;
   uint16_t playCount = 0;
   uint16_t cleanCount = 0;
@@ -61,9 +68,10 @@ class PetEngine {
   const PetState& state() const { return pet; }
   bool tick(uint32_t nowMs);
   void apply(PetAction action);
-  void completePageCatch(bool caught, FragmentKind kind);
-  uint8_t logPages(uint16_t pages);
-  bool finishBook();
+  void completePageCatch(bool caught);
+  bool completeReadingTransaction(uint32_t transaction, bool rewardsPage,
+                                  bool finishesBook);
+  void startReadingSession();
   bool selectSpecies(uint8_t species);
   bool equipToy(uint8_t toy);
   void awakeMoment(bool drowsy = false);
@@ -73,7 +81,7 @@ class PetEngine {
   bool buyFood();
   void wake();
   void resetTickClock();
-  void save() const;
+  bool save() const;
   PetMood mood() const;
   Personality personality() const;
   LifeStage lifeStage() const;

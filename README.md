@@ -9,11 +9,11 @@ Edition**. Book Pet lives entirely on the device: no phone, Wi-Fi, Bluetooth,
 account, cloud service, or AI connection is required for play. Wi-Fi is only
 turned on when you deliberately open the update screen.
 
-Meet Byte, Mote, and Pip: original 8-bit pixel familiars who eat pages. Feed
-them, play with them, read real books to earn food and toys, level up, and carry
-one on the back of your phone. The pet wanders around its room, becomes drowsy,
-dreams, and can wake itself. Its state is saved locally, and its deliberate
-stop-motion rhythm is designed around the strengths of e-paper.
+Meet Byte, Mote, and Pip: original 8-bit pixel familiars who eat pages. Put EPUB
+books on the SD card, read them on the X3, and every new page helps your pet
+grow. Feed them, play with them, earn toys, and carry one on the back of your
+phone. The pet wanders around its room, becomes drowsy, dreams, and can wake
+itself. Everything stays local.
 
 > [!WARNING]
 > Book Pet replaces the device firmware. It is intended only for the unlocked
@@ -29,17 +29,22 @@ stop-motion rhythm is designed around the strengths of e-paper.
 - Fullness, joy, rest, and cleanliness meters
 - Page Bite currency, pantry, food inventory, experience, and levels
 - Three-lane Page Catch memory game
-- Story, Mystery, Science, and Adventure fragment collection
 - Curious, Cozy, and Bold personalities shaped by care choices
 - Hatchling, Sprout, and Familiar growth stages
 - Three-entry diary of the current pet's recent life
 - Deterministic on-device thoughts that reflect mood and recent events
-- Reading log where every ten pages earns food
-- Finished-book rewards that unlock toys and new pets
+- Offline EPUB library and portrait reader powered by FreeInkBook
+- Streaming EPUB parsing, CSS layout, images, and SD-backed page caching
+- Resume positions that survive restarts and reader layout changes
+- Duplicate-safe rewards: revisiting a page never creates extra currency
+- Every new reader page earns one Page Bite and XP
+- Every ten pages earns food; first-time book completions unlock toys and pets
 - Persistent toy box and equipped toys visible in the pet's room
 - Visible autonomous wandering, reactions, drowsiness, sleep, dreams, and wake
 - Dedicated Pet Life screen to explain or disable autonomous behavior
-- Menu screens for reading, toys, pets, pantry, diary, and stats
+- Two-section navigation with **My Pet** and **Books**
+- **Pet Nook** for the Pantry, Toy Box, and Diary
+- **Pet Settings** for Pet Life, Stats, pets, and updates
 - Persistent local state in ESP32 NVS
 - Natural sleep after a quiet period, plus manual sleep
 - All six page buttons mapped to navigation and actions
@@ -61,6 +66,7 @@ stop-motion rhythm is designed around the strengths of e-paper.
 - Front Confirm: perform the selected action or select a menu item
 - Front Back: open the menu or return to the previous screen
 - Side Up/Down: move through menu items
+- While reading: either page-button pair turns pages; Back returns to Library
 - Hold power for about 1.2 seconds: save and sleep
 - Leave the home screen alone: the pet moves about every 15 seconds
 - After two quiet minutes: the pet becomes drowsy
@@ -73,6 +79,25 @@ boot, the firmware uses a full refresh to limit ghosting. Movement is step
 animation rather than video: the pet changes pose and location every several
 seconds, then uses low-power light sleep between 15-minute dream moments. After
 two dream moments, the pet wakes itself and resumes its visible life.
+
+## Read EPUB books
+
+1. Format a microSD card as FAT32 or exFAT.
+2. Create a folder named `BOOKS` at the top of the card.
+3. Copy DRM-free `.epub` files into `/BOOKS`.
+4. Insert the card and open **Menu → Books → Library**.
+5. Choose a book. The first open builds an SD cache; later opens and page turns
+   reuse it.
+
+Book Pet keeps a separate progress record for every book you open. Books are
+identified by their contents, so renaming an EPUB keeps its place while
+replacing a file cannot reuse the old book's pages or rewards. Reading positions
+use FreeInkBook's stable chapter and character anchors, so changing cache layout
+or returning to an earlier page does not duplicate rewards. DRM-protected EPUBs
+cannot be opened.
+
+See [Reading books](docs/BOOKS.md) for controls, rewards, supported content,
+and troubleshooting.
 
 ## Install a release
 
@@ -100,7 +125,7 @@ See [Updating and recovery](docs/UPDATING.md) for every supported path.
 
 ## Update an installed Book Pet
 
-Open **Pet Menu → Updates** on the X3.
+Open **Menu → My Pet → Pet Settings → Updates** on the X3.
 
 - **Phone / Browser:** Book Pet shows a temporary Wi-Fi name and random
   password. Join it from a phone, open `192.168.4.1`, then upload the signed
@@ -204,9 +229,11 @@ that the computer sees the X3 as a serial device before erasing anything.
 
 - Target: ESP32-C3, 16 MB flash, 792×528 physical X3 e-paper panel.
 - UI: counter-clockwise rotation into a 528×792 logical portrait canvas.
-- Hardware layer: pinned FreeInk SDK display, input, board-profile, panel
-  detection, and power-management libraries.
-- State: versioned `PetState` blob in ESP32 Preferences/NVS.
+- Hardware and reader layer: pinned FreeInk SDK display, input, board-profile,
+  panel detection, power-management, UI font, and FreeInkBook libraries.
+- State: versioned `PetState` and a small replay journal in Preferences/NVS,
+  plus content-keyed per-book progress files in the dedicated internal
+  filesystem partition. Rebuildable EPUB layout caches live on the SD card.
 - Power: manual Rest releases the X3 power latch and remains off until the
   power button wakes it. FreeInk selects the power-button wake source from the
   active board profile; Book Pet retains its hardware-tested X3 GPIO 13 latch
@@ -219,6 +246,7 @@ that the computer sees the X3 as a serial device before erasing anything.
 
 ```text
 src/             Pet state, controls, rendering, and firmware entry point
+docs/BOOKS.md    EPUB setup, controls, rewards, and troubleshooting
 firmware/        Verified release binaries and checksums
 freeink-sdk/     Pinned multi-device e-paper SDK Git submodule
 site/            One-click browser installer

@@ -33,7 +33,8 @@ This needs no app, account, or USB cable.
 
 1. Download `book-pet-x3-update.bin` from the latest GitHub release, or plan to
    let the X3 retrieve the official release itself.
-2. On the X3, open **Pet Menu → Updates → Phone / Browser**.
+2. On the X3, open
+   **Menu → My Pet → Pet Settings → Updates → Phone / Browser**.
 3. Join the `BookPet-XXXXXX` Wi-Fi network using the random password shown on
    the X3.
 4. Open <http://192.168.4.1/> if the maintenance page does not appear
@@ -57,7 +58,8 @@ after every online check. The local upload does not require internet access.
    `UPDATE.BIN`.
 4. Optionally copy a SHA-256 sidecar to `UPDATE.BIN.sha256` or
    `UPDATE.SHA256`.
-5. Insert the card and open **Pet Menu → Updates → Update from SD**.
+5. Insert the card and open
+   **Menu → My Pet → Pet Settings → Updates → Update from SD**.
 6. Keep the X3 powered until it verifies the firmware and restarts.
 
 For convenience, Book Pet also recognizes:
@@ -71,7 +73,8 @@ when no sidecar checksum is present.
 
 ## Restore the previous firmware
 
-Open **Pet Menu → Updates → Restore previous** and confirm a second time.
+Open **Menu → My Pet → Pet Settings → Updates → Restore previous** and
+confirm a second time.
 Book Pet selects the other bootable OTA slot and restarts. This option appears
 as unavailable until at least one OTA update has populated both slots.
 

@@ -91,21 +91,34 @@ static_assert(offsetof(PetStateV4, autonomousEnabled) ==
 
 void PetEngine::begin() {
   bool migrated = false;
+  uint32_t legacyFragments = 0;
   Preferences prefs;
   prefs.begin(kNamespace, true);
   const size_t savedSize = prefs.getBytesLength(kStateKey);
   if (savedSize == sizeof(PetState)) {
     PetState saved;
     prefs.getBytes(kStateKey, &saved, sizeof(saved));
-    if (saved.version == 5) pet = saved;
+    if (saved.version == 6) {
+      pet = saved;
+    } else if (saved.version == 5) {
+      pet = saved;
+      pet.version = 6;
+      legacyFragments =
+          static_cast<uint32_t>(pet.fragments[0]) + pet.fragments[1] +
+          pet.fragments[2] + pet.fragments[3];
+      migrated = true;
+    }
   } else if (savedSize == sizeof(PetStateV4)) {
     PetStateV4 old;
     prefs.getBytes(kStateKey, &old, sizeof(old));
     if (old.version == 4) {
       memcpy(&pet, &old, offsetof(PetStateV4, autonomousEnabled));
-      pet.version = 5;
+      pet.version = 6;
       pet.autonomousEnabled = old.autonomousEnabled;
       pet.sleeping = old.sleeping;
+      legacyFragments =
+          static_cast<uint32_t>(old.fragments[0]) + old.fragments[1] +
+          old.fragments[2] + old.fragments[3];
       migrated = true;
     }
   } else if (savedSize == sizeof(PetStateV3)) {
@@ -132,6 +145,9 @@ void PetEngine::begin() {
       pet.lastEvent = old.lastEvent;
       memcpy(pet.diary, old.diary, sizeof(old.diary));
       pet.sleeping = old.sleeping;
+      legacyFragments =
+          static_cast<uint32_t>(old.fragments[0]) + old.fragments[1] +
+          old.fragments[2] + old.fragments[3];
       migrated = true;
     }
   } else if (savedSize == sizeof(PetStateV2)) {
@@ -154,7 +170,14 @@ void PetEngine::begin() {
     }
   }
   prefs.end();
-  if (migrated) save();
+  if (migrated) {
+    pet.pageBites = static_cast<uint16_t>(
+        min<uint32_t>(UINT16_MAX, pet.pageBites + legacyFragments));
+    pet.lastReadingTransaction = 0;
+    pet.readingReserved = 0;
+    if (legacyFragments > 0) pet.lastEvent = 33;
+    save();
+  }
   lastTickMs = millis();
 }
 
@@ -246,7 +269,7 @@ void PetEngine::apply(PetAction action) {
   save();
 }
 
-void PetEngine::completePageCatch(bool caught, FragmentKind kind) {
+void PetEngine::completePageCatch(bool caught) {
   pet.interactions++;
   pet.playCount++;
   pet.sleeping = false;
@@ -254,11 +277,9 @@ void PetEngine::completePageCatch(bool caught, FragmentKind kind) {
   pet.fullness = clampNeed(pet.fullness - 5);
   pet.curiosity = clampNeed(pet.curiosity - (caught ? 18 : 8));
   if (caught) {
-    pet.fragments[static_cast<uint8_t>(kind)]++;
-    pet.pageBites += 2;
     pet.happiness = clampNeed(pet.happiness + 18);
-    recordEvent(13 + static_cast<uint8_t>(kind));
-    addExperience(10);
+    recordEvent(13);
+    addExperience(5);
   } else {
     pet.happiness = clampNeed(pet.happiness + 4);
     recordEvent(17);
@@ -267,41 +288,54 @@ void PetEngine::completePageCatch(bool caught, FragmentKind kind) {
   save();
 }
 
-uint8_t PetEngine::logPages(uint16_t pages) {
-  if (pages == 0) return 0;
-  const uint32_t before = pet.lifetimePages;
-  pet.lifetimePages += pages;
-  pet.currentBookPages =
-      static_cast<uint16_t>(min(65'535UL,
-                                static_cast<unsigned long>(pet.currentBookPages) +
-                                    pages));
+void PetEngine::startReadingSession() {
   pet.readingSessions++;
-  const uint32_t earned = pet.lifetimePages / 10 - before / 10;
-  pet.food = static_cast<uint8_t>(
-      min(99UL, static_cast<unsigned long>(pet.food) + earned));
-  pet.curiosity = clampNeed(pet.curiosity - min(30, pages / 2));
-  pet.happiness = clampNeed(pet.happiness + min(15, pages / 4));
-  pet.interactions++;
-  recordEvent(20);
-  addExperience(min<uint16_t>(50, pages));
+  pet.lastEvent = 32;
   save();
-  return static_cast<uint8_t>(min(255UL, earned));
 }
 
-bool PetEngine::finishBook() {
-  if (pet.currentBookPages == 0) return false;
-  pet.booksFinished++;
-  pet.currentBookPages = 0;
-  const uint8_t toy = (pet.booksFinished - 1) % 4;
-  pet.toys |= static_cast<uint8_t>(1U << toy);
-  if (pet.equippedToy == 0xFF) pet.equippedToy = toy;
-  if (pet.booksFinished >= 1) pet.unlockedPets |= 0x02;
-  if (pet.booksFinished >= 3) pet.unlockedPets |= 0x04;
-  pet.happiness = clampNeed(pet.happiness + 25);
-  pet.pageBites += 5;
-  recordEvent(21);
-  addExperience(25);
-  save();
+bool PetEngine::completeReadingTransaction(uint32_t transaction,
+                                           bool rewardsPage,
+                                           bool finishesBook) {
+  if (transaction == 0 || pet.lastReadingTransaction == transaction) {
+    return transaction != 0;
+  }
+  const PetState before = pet;
+  if (rewardsPage) {
+    const uint32_t before = pet.lifetimePages;
+    pet.lifetimePages++;
+    if (pet.currentBookPages < UINT16_MAX) pet.currentBookPages++;
+    pet.pageBites =
+        static_cast<uint16_t>(min<uint32_t>(UINT16_MAX, pet.pageBites + 1));
+    const bool earnedFood = pet.lifetimePages / 10 > before / 10;
+    if (earnedFood && pet.food < 99) pet.food++;
+    pet.curiosity = clampNeed(pet.curiosity - 1);
+    if (pet.lifetimePages % 5 == 0) {
+      pet.happiness = clampNeed(pet.happiness + 1);
+    }
+    pet.lastEvent = earnedFood ? 20 : 32;
+    addExperience(1);
+  }
+
+  if (finishesBook) {
+    if (pet.booksFinished < UINT16_MAX) pet.booksFinished++;
+    pet.currentBookPages = 0;
+    const uint8_t toy = (pet.booksFinished - 1) % 4;
+    pet.toys |= static_cast<uint8_t>(1U << toy);
+    if (pet.equippedToy == 0xFF) pet.equippedToy = toy;
+    if (pet.booksFinished >= 1) pet.unlockedPets |= 0x02;
+    if (pet.booksFinished >= 3) pet.unlockedPets |= 0x04;
+    pet.happiness = clampNeed(pet.happiness + 25);
+    pet.pageBites = static_cast<uint16_t>(
+        min<uint32_t>(UINT16_MAX, pet.pageBites + 5));
+    recordEvent(21);
+    addExperience(25);
+  }
+  pet.lastReadingTransaction = transaction;
+  if (!save()) {
+    pet = before;
+    return false;
+  }
   return true;
 }
 
@@ -472,10 +506,7 @@ const char* PetEngine::thought() const {
     case 9: return "Oh! You're back.";
     case 11: return "I remember our last chapter.";
     case 12: return "My pixels are squeaky clean!";
-    case 13: return "A Story fragment! Tell me more.";
-    case 14: return "A Mystery fragment... curious.";
-    case 15: return "Science! My brain is buzzing.";
-    case 16: return "Adventure! Let's go farther.";
+    case 13: return "I caught it! Let's play again.";
     case 17: return "It escaped. One more try?";
     case 20: return "Those pages were delicious!";
     case 21: return "A whole book! I found a toy!";
@@ -498,6 +529,8 @@ const char* PetEngine::thought() const {
     case 29: return "I am checking for dropped snacks.";
     case 30: return "Maybe the clean corner is over here.";
     case 31: return "My toy keeps me company.";
+    case 32: return "That page was delicious.";
+    case 33: return "Old fragments became Page Bites!";
     default: break;
   }
   switch (mood()) {
@@ -529,10 +562,7 @@ const char* PetEngine::diaryLine(uint8_t index) const {
     case 10: return "Hatched into the pocket world.";
     case 11: return "Carried memories into v0.3.";
     case 12: return "Had a very bubbly cleanup.";
-    case 13: return "Caught a Story fragment.";
-    case 14: return "Caught a Mystery fragment.";
-    case 15: return "Caught a Science fragment.";
-    case 16: return "Caught an Adventure fragment.";
+    case 13: return "Won a round of Page Catch.";
     case 17: return "Chased a page that escaped.";
     case 20: return "Read pages and earned a snack.";
     case 21: return "Finished a book and found a toy.";
@@ -540,6 +570,8 @@ const char* PetEngine::diaryLine(uint8_t index) const {
     case 24: return "Picked a favorite toy.";
     case 26: return "Fell asleep in a cozy corner.";
     case 28: return "Woke up and explored alone.";
+    case 32: return "Read a new page together.";
+    case 33: return "Turned old fragments into snacks.";
     default: return "Watched the loose pages drift.";
   }
 }
@@ -575,9 +607,11 @@ bool PetEngine::toyUnlocked(uint8_t toy) const {
   return toy < 4 && (pet.toys & (1U << toy));
 }
 
-void PetEngine::save() const {
+bool PetEngine::save() const {
   Preferences prefs;
-  prefs.begin(kNamespace, false);
-  prefs.putBytes(kStateKey, &pet, sizeof(pet));
+  if (!prefs.begin(kNamespace, false)) return false;
+  const bool saved =
+      prefs.putBytes(kStateKey, &pet, sizeof(pet)) == sizeof(pet);
   prefs.end();
+  return saved;
 }

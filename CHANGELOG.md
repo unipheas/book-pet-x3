@@ -4,6 +4,36 @@ All notable changes to Book Pet are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added a complete offline EPUB library and reader powered by FreeInkBook.
+- Added SD-backed EPUB indexing, chapter pagination, layout caching, resume
+  positions, DRM detection, and friendly memory/error states for the X3.
+- Added durable per-book progress files keyed by EPUB contents in the X3's
+  dedicated internal filesystem, without expanding or risking the pet save.
+- Added one-time reading rewards based on stable EPUB page locations, with a
+  replayable save journal that prevents loss or duplication after interruption.
+
+### Changed
+
+- Rebuilt navigation around two primary sections: **My Pet** and **Books**.
+- Grouped Pantry, Toy Box, and Diary under **Pet Nook**.
+- Grouped Pet Life, Stats, Choose Pet, and Updates under **Pet Settings**.
+- Replaced the manual reading log with Continue Reading, Library, and Reading
+  Rewards.
+- Reading now drives progression: each new page earns one Page Bite and one XP,
+  every ten pages earns food, and a book's first completion unlocks rewards.
+- Page Catch now awards joy and play XP instead of reading currency.
+- Legacy Story, Mystery, Science, and Adventure fragments migrate into Page
+  Bites and no longer appear in the interface.
+
+### Verified
+
+- Built the normal X3 and signature-enforcing release firmware with FreeInkBook
+  in its ESP32-C3 small-memory profile.
+- Passed FreeInkBook's 36,755-check host suite, including 1,700-chapter EPUB
+  catalog and small-memory pagination tests.
+
 ## [0.5.0] - 2026-07-25
 
 ### Added
