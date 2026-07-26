@@ -1,8 +1,9 @@
 # Updating and recovery
 
 Book Pet supports four installation and recovery paths. Pet progress lives in
-the NVS data partition, separate from both firmware slots. Normal updates and
-rollbacks do not erase it.
+NVS and per-book reading progress lives in the internal SPIFFS partition,
+separate from both firmware slots. Normal updates and rollbacks do not erase
+either one.
 
 ## First install: web installer
 
@@ -24,6 +25,11 @@ It contains the bootloader, OTA partition table, OTA selector, and application.
 The browser offers the erase choice because replacing unrelated firmware while
 preserving an unknown partition layout is unsafe.
 
+A clean install with erase selected resets pet state, inventory, unlocks,
+reading positions, and earned-page records. It does not erase the removable SD
+card. If Book Pet is already installed and working, use an update path below
+instead of a clean install.
+
 iOS browsers do not expose the USB Web Serial connection. Use a desktop or
 laptop for the first install.
 
@@ -33,7 +39,8 @@ This needs no app, account, or USB cable.
 
 1. Download `book-pet-x3-update.bin` from the latest GitHub release, or plan to
    let the X3 retrieve the official release itself.
-2. On the X3, open **Pet Menu → Updates → Phone / Browser**.
+2. On the X3, open
+   **Menu → My Pet → Pet Settings → Updates → Phone / Browser**.
 3. Join the `BookPet-XXXXXX` Wi-Fi network using the random password shown on
    the X3.
 4. Open <http://192.168.4.1/> if the maintenance page does not appear
@@ -57,7 +64,8 @@ after every online check. The local upload does not require internet access.
    `UPDATE.BIN`.
 4. Optionally copy a SHA-256 sidecar to `UPDATE.BIN.sha256` or
    `UPDATE.SHA256`.
-5. Insert the card and open **Pet Menu → Updates → Update from SD**.
+5. Insert the card and open
+   **Menu → My Pet → Pet Settings → Updates → Update from SD**.
 6. Keep the X3 powered until it verifies the firmware and restarts.
 
 For convenience, Book Pet also recognizes:
@@ -71,12 +79,14 @@ when no sidecar checksum is present.
 
 ## Restore the previous firmware
 
-Open **Pet Menu → Updates → Restore previous** and confirm a second time.
+Open **Menu → My Pet → Pet Settings → Updates → Restore previous** and
+confirm a second time.
 Book Pet selects the other bootable OTA slot and restarts. This option appears
 as unavailable until at least one OTA update has populated both slots.
 
 Rollback changes firmware only. It does not rewind pet progress or erase NVS.
-New firmware must keep persisted pet-state migrations backward compatible.
+It also leaves SPIFFS reading progress in place. New firmware must keep both
+pet-state and reading-progress migrations backward compatible.
 
 ## Hold-at-boot recovery
 

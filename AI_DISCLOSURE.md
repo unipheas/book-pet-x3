@@ -10,6 +10,8 @@ including:
   X3-specific, physically verified power behavior;
 - proposing firmware architecture and interaction designs;
 - writing and revising C++ firmware, documentation, and release materials;
+- implementing and testing the offline EPUB reader, durable reading progress,
+  reward recovery, and macOS SD-card compatibility;
 - running compiler builds, packaging firmware images, and checking release
   artifacts;
 - operating the local flashing workflow and GitHub release process under the

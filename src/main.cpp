@@ -11,11 +11,13 @@
 #include <esp_system.h>
 
 #include "Canvas.h"
+#include "BookReader.h"
 #include "BookPetVersion.h"
 #include "FirmwareUpdater.h"
 #include "PetRules.h"
 #include "PetSprite.h"
 #include "PetState.h"
+#include "ReadingProgress.h"
 #ifdef FILE_READ
 #undef FILE_READ
 #endif
@@ -39,16 +41,26 @@ constexpr uint32_t NATURAL_SLEEP_MS = 3 * 60'000;
 constexpr uint64_t AUTONOMY_WAKE_US = 15ULL * 60ULL * 1'000'000ULL;
 constexpr uint32_t OTA_HEALTHY_RUNTIME_MS = 5'000;
 constexpr uint8_t FULL_REFRESH_EVERY = 12;
-constexpr uint8_t MENU_ITEM_COUNT = 10;
+constexpr uint8_t MAIN_ITEM_COUNT = 2;
+constexpr uint8_t PET_ITEM_COUNT = 3;
+constexpr uint8_t NOOK_ITEM_COUNT = 3;
+constexpr uint8_t SETTINGS_ITEM_COUNT = 4;
+constexpr uint8_t BOOKS_ITEM_COUNT = 3;
 constexpr uint8_t UPDATE_ITEM_COUNT = 4;
 
 enum class Screen : uint8_t {
   Home,
-  Menu,
+  MainMenu,
+  PetMenu,
+  PetNook,
+  PetSettings,
+  BooksMenu,
+  Library,
+  Reader,
+  ReaderStatus,
+  ReadingRewards,
   Pantry,
-  Fragments,
   Diary,
-  Reading,
   Toys,
   Behavior,
   Stats,
@@ -63,18 +75,29 @@ enum class UpdateView : uint8_t {
   RollbackConfirm
 };
 
+enum class ReadingAwardResult : uint8_t {
+  NoReward,
+  Granted,
+  SaveFailed
+};
+
 EInkDisplay display(
     BoardConfig::ACTIVE.display.sclk, BoardConfig::ACTIVE.display.mosi,
     BoardConfig::ACTIVE.display.cs, BoardConfig::ACTIVE.display.dc,
     BoardConfig::ACTIVE.display.rst, BoardConfig::ACTIVE.display.busy);
 InputManager buttons;
 PetEngine pet;
+bookpet::BookReader bookReader;
+bookpet::ReadingProgress readingProgress;
 Screen screen = Screen::Home;
 PetAction selectedAction = PetAction::Feed;
-uint8_t menuIndex = 0;
-uint8_t readingIndex = 0;
-uint8_t readingPhase = 0;
-uint16_t pendingPages = 0;
+uint8_t mainIndex = 0;
+uint8_t petIndex = 0;
+uint8_t nookIndex = 0;
+uint8_t settingsIndex = 0;
+uint8_t booksIndex = 0;
+uint8_t libraryIndex = 0;
+uint8_t libraryOffset = 0;
 uint8_t petCursor = 0;
 uint8_t toyCursor = 0;
 uint8_t updateIndex = 0;
@@ -90,13 +113,18 @@ bool drowsyShown = false;
 uint8_t gamePhase = 0;
 uint8_t playerLane = 1;
 uint8_t targetLane = 1;
-FragmentKind gameFragment = FragmentKind::Story;
 bool gameCaught = false;
+char readerStatusTitle[48] = "OPENING BOOK";
+char readerStatusDetail[128] = "Preparing the first page";
 uint32_t lastInputMs = 0;
 uint32_t lastAmbientMs = 0;
 uint8_t fastRefreshes = 0;
 
 void render(bool forceFull = false);
+void setProgressSaveError();
+void drawWrappedCentered(Canvas& c, int y, const char* text, uint8_t scale,
+                         size_t maxChars, int lineHeight,
+                         uint8_t maxLines);
 
 void confirmHealthyUpdateIfDue() {
   if (!otaConfirmPending) return;
@@ -326,63 +354,164 @@ void drawTitle(Canvas& c, const char* title, const char* subtitle) {
   c.line(22, 92, 506, 92);
 }
 
-void drawMenu(Canvas& c) {
-  static constexpr const char* items[] = {
-      "HOME", "READING", "PANTRY", "TOYS", "PET LIFE",
-      "FRAGMENTS", "DIARY", "STATS", "PETS", "UPDATES"};
-  drawTitle(c, "PET MENU", "SIDE BUTTONS MOVE  /  OK SELECT");
-  for (int i = 0; i < MENU_ITEM_COUNT; ++i) {
-    const int y = 108 + i * 60;
-    if (menuIndex == i) c.rect(42, y - 10, 444, 46, true);
-    if (menuIndex == i) {
-      for (int yy = y - 5; yy < y + 27; ++yy)
-        for (int xx = 54; xx < 474; ++xx) c.pixel(xx, yy, false);
+void drawListMenu(Canvas& c, const char* title, const char* subtitle,
+                  const char* const* items, const char* const* details,
+                  uint8_t count, uint8_t selected, const char* backLabel) {
+  drawTitle(c, title, subtitle);
+  const int rowHeight = count <= 3 ? 168 : 132;
+  const int boxHeight = count <= 3 ? 116 : 92;
+  for (uint8_t i = 0; i < count; ++i) {
+    const int y = 126 + i * rowHeight;
+    c.rect(42, y, 444, boxHeight);
+    if (selected == i) {
+      c.rect(42, y, 16, boxHeight, true);
+      c.text(445, y + 24, ">", 3);
     }
-    c.text(72, y, items[i], 2);
-    c.text(438, y, menuIndex == i ? ">" : "-", 2);
+    c.text(78, y + 22, items[i], 2);
+    if (details && details[i]) c.text(78, y + 62, details[i], 1);
   }
-  c.text(34, 744, "BACK HOME", 1);
+  c.line(22, 722, 506, 722);
+  c.text(30, 744, backLabel, 1);
+  c.text(420, 744, "OK", 1);
 }
 
-void drawReading(Canvas& c) {
+void drawMainMenu(Canvas& c) {
+  drawTitle(c, "BOOK PET", "CHOOSE WHERE TO GO");
+  const int petY = 145;
+  const int booksY = 425;
+  const int selectedY = mainIndex == 0 ? petY : booksY;
+  c.rect(42, petY, 444, 220);
+  c.rect(42, booksY, 444, 220);
+  c.rect(42, selectedY, 16, 220, true);
+  PetSprite::draw(c, PetSprite::BYTE_HAPPY, 82, 175, 5);
+  c.text(242, 205, "MY PET", 3);
+  c.text(242, 255, "CARE, PLAY, AND", 1);
+  c.text(242, 280, "MAKE A COZY HOME", 1);
+  c.rect(91, 478, 122, 96);
+  c.line(104, 494, 200, 494);
+  c.line(104, 516, 192, 516);
+  c.line(104, 538, 200, 538);
+  c.text(242, 485, "BOOKS", 3);
+  c.text(242, 535, "READ EPUBS AND", 1);
+  c.text(242, 560, "GROW TOGETHER", 1);
+  c.text(458, selectedY + 92, ">", 3);
+  c.line(22, 722, 506, 722);
+  c.text(30, 744, "BACK HOME", 1);
+  c.text(420, 744, "OK", 1);
+}
+
+void drawPetMenu(Canvas& c) {
+  static constexpr const char* items[] = {
+      "PET HOME", "PET NOOK", "PET SETTINGS"};
+  static constexpr const char* details[] = {
+      "CARE FOR YOUR PET", "PANTRY, TOYS, AND DIARY",
+      "LIFE, STATS, PETS, UPDATES"};
+  drawListMenu(c, "MY PET", "EVERYTHING ABOUT YOUR COMPANION",
+               items, details, PET_ITEM_COUNT, petIndex, "BACK MAIN");
+}
+
+void drawPetNook(Canvas& c) {
+  static constexpr const char* items[] = {"PANTRY", "TOY BOX", "DIARY"};
+  static constexpr const char* details[] = {
+      "BAKE PAGE BITES INTO FOOD", "EQUIP READING REWARDS",
+      "REMEMBER RECENT MOMENTS"};
+  drawListMenu(c, "PET NOOK", "YOUR PET'S FAVORITE THINGS",
+               items, details, NOOK_ITEM_COUNT, nookIndex, "BACK PET");
+}
+
+void drawPetSettings(Canvas& c) {
+  static constexpr const char* items[] = {
+      "PET LIFE", "STATS", "CHOOSE PET", "UPDATES"};
+  static constexpr const char* details[] = {
+      "AUTONOMOUS SLEEP AND PLAY", "LEVELS AND PERSONALITY",
+      "YOUR UNLOCKED PET FAMILY", "INSTALL OR RECOVER FIRMWARE"};
+  drawListMenu(c, "PET SETTINGS", "BEHAVIOR, PROGRESS, AND DEVICE",
+               items, details, SETTINGS_ITEM_COUNT, settingsIndex,
+               "BACK PET");
+}
+
+void drawBooksMenu(Canvas& c) {
+  static constexpr const char* items[] = {
+      "CONTINUE READING", "LIBRARY", "READING REWARDS"};
+  static constexpr const char* details[] = {
+      "RETURN TO YOUR LAST PAGE", "OPEN EPUBS FROM THE SD CARD",
+      "PAGES, BOOKS, FOOD, AND LEVELS"};
+  drawListMenu(c, "BOOKS", "READING MAKES YOUR PET GROW",
+               items, details, BOOKS_ITEM_COUNT, booksIndex, "BACK MAIN");
+}
+
+void drawReadingRewards(Canvas& c) {
   const PetState& state = pet.state();
-  drawTitle(c, "READING REWARDS", "REAL PAGES FEED YOUR PET");
-  char value[48];
-  if (readingPhase == 1) {
-    centeredText(c, 145, "HOW MANY PAGES DID YOU READ?", 1);
-    snprintf(value, sizeof(value), "%u", pendingPages);
-    centeredText(c, 235, value, 7);
-    centeredText(c, 355, "LEFT / RIGHT: 1 PAGE", 2);
-    centeredText(c, 400, "SIDE UP / DOWN: 10 PAGES", 2);
-    centeredText(c, 475, "EVERY 10 PAGES EARNS 1 FOOD", 1);
-    c.text(34, 744, "BACK CANCEL", 1);
-    c.text(410, 744, "OK SAVE", 1);
-    return;
-  }
-
-  snprintf(value, sizeof(value), "CURRENT BOOK   %u PAGES",
-           state.currentBookPages);
-  c.text(54, 140, value, 2);
-  snprintf(value, sizeof(value), "LIFETIME       %lu PAGES",
+  drawTitle(c, "READING REWARDS", "ONLY NEW READER PAGES COUNT");
+  char value[52];
+  c.rect(42, 135, 444, 250);
+  snprintf(value, sizeof(value), "PAGES READ     %lu",
            static_cast<unsigned long>(state.lifetimePages));
-  c.text(54, 185, value, 2);
+  c.text(68, 175, value, 2);
   snprintf(value, sizeof(value), "BOOKS FINISHED %u", state.booksFinished);
-  c.text(54, 230, value, 2);
+  c.text(68, 230, value, 2);
+  snprintf(value, sizeof(value), "PAGE BITES     %u", state.pageBites);
+  c.text(68, 285, value, 2);
+  snprintf(value, sizeof(value), "PET LEVEL      %u", state.level);
+  c.text(68, 340, value, 2);
 
-  static constexpr const char* choices[] = {"LOG PAGES", "FINISH THIS BOOK"};
-  for (int i = 0; i < 2; ++i) {
-    const int y = 330 + i * 105;
-    if (readingIndex == i) c.rect(45, y - 17, 438, 62, true);
-    if (readingIndex == i) {
-      for (int yy = y - 8; yy < y + 35; ++yy)
-        for (int xx = 56; xx < 472; ++xx) c.pixel(xx, yy, false);
+  c.rect(42, 430, 444, 205);
+  c.text(68, 465, "EVERY NEW PAGE", 2);
+  c.text(68, 505, "+1 PAGE BITE  +1 XP", 1);
+  c.text(68, 550, "EVERY 10 PAGES", 2);
+  c.text(68, 590, "+1 FOOD", 1);
+  centeredText(c, 670, "FINISHED BOOKS UNLOCK TOYS + PETS", 1);
+  c.line(22, 722, 506, 722);
+  c.text(30, 744, "BACK BOOKS", 1);
+}
+
+void drawLibrary(Canvas& c) {
+  drawTitle(c, "LIBRARY", "EPUB FILES IN THE SD CARD'S /BOOKS FOLDER");
+  const uint8_t count = bookReader.bookCount();
+  if (count == 0) {
+    c.rect(42, 145, 444, 300);
+    centeredText(c, 205, "NO EPUB BOOKS YET", 3);
+    centeredText(c, 285, "PUT .EPUB FILES IN /BOOKS", 2);
+    centeredText(c, 335, "ON THE SD CARD", 2);
+    centeredText(c, 505, "PRESS OK TO CHECK AGAIN", 1);
+  } else {
+    constexpr uint8_t visible = 5;
+    for (uint8_t row = 0; row < visible; ++row) {
+      const uint8_t index = libraryOffset + row;
+      if (index >= count) break;
+      const int y = 120 + row * 112;
+      c.rect(36, y, 456, 86);
+      if (index == libraryIndex) c.rect(36, y, 14, 86, true);
+      char name[38] = {};
+      snprintf(name, sizeof(name), "%s", bookReader.bookName(index));
+      const size_t length = strlen(name);
+      if (length > 5 && strcasecmp(name + length - 5, ".epub") == 0) {
+        name[length - 5] = '\0';
+      }
+      c.text(65, y + 20, name, 1);
+      if (readingProgress.finished(bookReader.bookIdAt(index))) {
+        c.text(65, y + 52, "FINISHED", 1);
+      }
+      if (index == libraryIndex) c.text(453, y + 28, ">", 2);
     }
-    c.text(70, y, choices[i], 2);
+    char countLabel[32];
+    snprintf(countLabel, sizeof(countLabel), "%u BOOK%s", count,
+             count == 1 ? "" : "S");
+    centeredText(c, 685, countLabel, 1);
   }
-  centeredText(c, 610, "10 PAGES = 1 FOOD", 2);
-  centeredText(c, 655, "FINISHED BOOKS UNLOCK TOYS + PETS", 1);
-  c.text(34, 744, "BACK MENU", 1);
-  c.text(416, 744, "OK", 1);
+  c.line(22, 722, 506, 722);
+  c.text(30, 744, "BACK BOOKS", 1);
+  c.text(405, 744, count ? "OK READ" : "OK SCAN", 1);
+}
+
+void drawReaderStatus(Canvas& c) {
+  drawTitle(c, readerStatusTitle, "FREEINK EPUB READER");
+  c.rect(54, 170, 420, 300);
+  drawWrappedCentered(c, 235, readerStatusDetail, 2, 32, 42, 4);
+  centeredText(c, 535, "THE FIRST OPEN MAY TAKE A MOMENT", 1);
+  centeredText(c, 575, "LATER PAGES USE THE SD CACHE", 1);
+  c.line(22, 722, 506, 722);
+  c.text(30, 744, "BACK LIBRARY", 1);
 }
 
 void drawToys(Canvas& c) {
@@ -401,7 +530,7 @@ void drawToys(Canvas& c) {
     if (unlocked && state.equippedToy == i) c.text(420, y, "*", 2);
   }
   centeredText(c, 625, "LEFT / RIGHT CHOOSE  /  OK EQUIP", 1);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK NOOK", 1);
 }
 
 void drawBehavior(Canvas& c) {
@@ -423,24 +552,7 @@ void drawBehavior(Canvas& c) {
   c.text(62, 550, "WHILE ASLEEP", 2);
   c.text(62, 590, "DREAMS, THEN WAKES BY ITSELF", 1);
   centeredText(c, 670, "E-PAPER MOTION HAPPENS IN STEPS", 1);
-  c.text(34, 744, "BACK MENU", 1);
-}
-
-void drawFragments(Canvas& c) {
-  const PetState& state = pet.state();
-  static constexpr const char* names[] = {
-      "STORY", "MYSTERY", "SCIENCE", "ADVENTURE"};
-  drawTitle(c, "PAGE FRAGMENTS", "CATCH PAGES TO BUILD A COLLECTION");
-  for (int i = 0; i < 4; ++i) {
-    const int y = 145 + i * 105;
-    c.rect(48, y - 20, 432, 68);
-    c.text(72, y, names[i], 2);
-    char count[16];
-    snprintf(count, sizeof(count), "x %u", state.fragments[i]);
-    c.text(390, y, count, 2);
-  }
-  centeredText(c, 610, "PLAY FROM HOME TO FIND MORE", 1);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK SETTINGS", 1);
 }
 
 void drawDiary(Canvas& c) {
@@ -456,7 +568,7 @@ void drawDiary(Canvas& c) {
     c.text(62, y + 42, pet.diaryLine(i), 1);
   }
   centeredText(c, 650, "YOUR PET REMEMBERS WHAT MATTERS", 1);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK NOOK", 1);
 }
 
 void drawPantry(Canvas& c) {
@@ -471,7 +583,7 @@ void drawPantry(Canvas& c) {
   centeredText(c, 326, "BAKE 1 FOOD", 3);
   centeredText(c, 372, "COST: 3 PAGE BITES", 2);
   centeredText(c, 480, pet.thought(), 1);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK NOOK", 1);
   c.text(404, 744, "OK BAKE", 1);
 }
 
@@ -501,7 +613,7 @@ void drawStats(Canvas& c) {
   c.rect(54, 500, 420, 125);
   centeredText(c, 525, "NEXT LEVEL REWARD", 2);
   centeredText(c, 570, "+2 FOOD  +2 PAGE BITES", 2);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK SETTINGS", 1);
 }
 
 void drawPets(Canvas& c) {
@@ -525,7 +637,7 @@ void drawPets(Canvas& c) {
   }
   centeredText(c, 565, "<  BROWSE PETS  >", 2);
   centeredText(c, 625, "BYTE  /  MOTE  /  PIP", 1);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, "BACK SETTINGS", 1);
 }
 
 void drawWrappedCentered(Canvas& c, int y, const char* text, uint8_t scale,
@@ -571,7 +683,7 @@ void drawUpdateMenu(Canvas& c) {
     c.text(68, y, items[i], 2);
   }
   drawWrappedCentered(c, 600, help[updateIndex], 1, 42, 22, 2);
-  c.text(34, 744, "BACK MENU", 1);
+  c.text(34, 744, recoveryBoot ? "BACK PET" : "BACK SETTINGS", 1);
   c.text(420, 744, "OK", 1);
 }
 
@@ -732,21 +844,9 @@ void performSdUpdate() {
   ESP.restart();
 }
 
-const char* fragmentName(FragmentKind kind) {
-  switch (kind) {
-    case FragmentKind::Story: return "STORY";
-    case FragmentKind::Mystery: return "MYSTERY";
-    case FragmentKind::Science: return "SCIENCE";
-    case FragmentKind::Adventure: return "ADVENTURE";
-  }
-  return "";
-}
-
 void startPageCatch() {
   const PetState& state = pet.state();
   targetLane = (state.interactions + state.activeMinutes + state.level) % 3;
-  gameFragment = static_cast<FragmentKind>(
-      (state.interactions + state.level + state.pageBites) % 4);
   playerLane = 1;
   gamePhase = 0;
   gameCaught = false;
@@ -754,7 +854,7 @@ void startPageCatch() {
 }
 
 void drawPageCatch(Canvas& c) {
-  drawTitle(c, "CATCH THE PAGE", fragmentName(gameFragment));
+  drawTitle(c, "CATCH THE PAGE", "PLAY FOR JOY AND XP");
   c.line(176, 145, 176, 610);
   c.line(352, 145, 352, 610);
   if (gamePhase == 0) {
@@ -776,30 +876,65 @@ void drawPageCatch(Canvas& c) {
     PetSprite::draw(
         c, spriteFor(state, gameCaught ? PetMood::Happy : PetMood::Hungry),
         168, 260, 8);
-    centeredText(c, 535,
-                 gameCaught ? "+2 PAGE BITES  +10 XP" : "+2 XP", 2);
+    centeredText(c, 535, gameCaught ? "+5 XP" : "+2 XP", 2);
     centeredText(c, 650, "OK: GO HOME", 2);
   }
   c.text(34, 744, "BACK HOME", 1);
+}
+
+void drawReaderOverlay(Canvas& c) {
+  char title[38] = {};
+  snprintf(title, sizeof(title), "%s", bookReader.title());
+  c.line(24, 55, 504, 55);
+  c.text(28, 20, title, 1);
+  char location[40];
+  snprintf(location, sizeof(location), "CH %u/%u  PAGE %lu/%lu",
+           static_cast<unsigned>(bookReader.spine() + 1),
+           static_cast<unsigned>(bookReader.chapterCount()),
+           static_cast<unsigned long>(bookReader.chapterPage() + 1),
+           static_cast<unsigned long>(bookReader.chapterPages()));
+  c.line(24, 730, 504, 730);
+  c.text(28, 744, "BACK LIBRARY", 1);
+  c.text(286, 744, location, 1);
 }
 
 void render(bool forceFull) {
   display.clearScreen();
   Canvas canvas(display.getFrameBuffer(), display.getDisplayWidth(),
                 display.getDisplayHeight(), Canvas::Rotation::CounterClockwise);
+  if (screen == Screen::Reader && bookReader.isOpen()) {
+    if (!bookReader.render(display.getFrameBuffer(), display.getDisplayWidth(),
+                           display.getDisplayHeight())) {
+      snprintf(readerStatusTitle, sizeof(readerStatusTitle), "PAGE ERROR");
+      snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
+               bookReader.error());
+      screen = Screen::ReaderStatus;
+      display.clearScreen();
+      drawReaderStatus(canvas);
+    } else {
+      drawReaderOverlay(canvas);
+    }
+  } else {
   switch (screen) {
     case Screen::Home: drawHome(canvas); break;
-    case Screen::Menu: drawMenu(canvas); break;
+    case Screen::MainMenu: drawMainMenu(canvas); break;
+    case Screen::PetMenu: drawPetMenu(canvas); break;
+    case Screen::PetNook: drawPetNook(canvas); break;
+    case Screen::PetSettings: drawPetSettings(canvas); break;
+    case Screen::BooksMenu: drawBooksMenu(canvas); break;
+    case Screen::Library: drawLibrary(canvas); break;
+    case Screen::ReaderStatus: drawReaderStatus(canvas); break;
+    case Screen::ReadingRewards: drawReadingRewards(canvas); break;
     case Screen::Pantry: drawPantry(canvas); break;
-    case Screen::Reading: drawReading(canvas); break;
     case Screen::Toys: drawToys(canvas); break;
     case Screen::Behavior: drawBehavior(canvas); break;
-    case Screen::Fragments: drawFragments(canvas); break;
     case Screen::Diary: drawDiary(canvas); break;
     case Screen::Stats: drawStats(canvas); break;
     case Screen::Pets: drawPets(canvas); break;
     case Screen::Updates: drawUpdates(canvas); break;
     case Screen::PageCatch: drawPageCatch(canvas); break;
+    case Screen::Reader: break;
+  }
   }
   const bool doFull = forceFull || fastRefreshes >= FULL_REFRESH_EVERY;
   display.displayBuffer(doFull ? EInkDisplay::FULL_REFRESH
@@ -911,35 +1046,207 @@ void goBack() {
     return;
   }
   if (screen == Screen::Home) {
-    screen = Screen::Menu;
-  } else if (screen == Screen::Menu) {
+    screen = Screen::MainMenu;
+  } else if (screen == Screen::MainMenu) {
     screen = Screen::Home;
+  } else if (screen == Screen::PetMenu || screen == Screen::BooksMenu) {
+    screen = Screen::MainMenu;
+  } else if (screen == Screen::PetNook ||
+             screen == Screen::PetSettings) {
+    screen = Screen::PetMenu;
+  } else if (screen == Screen::Pantry || screen == Screen::Toys ||
+             screen == Screen::Diary) {
+    screen = Screen::PetNook;
+  } else if (screen == Screen::Behavior || screen == Screen::Stats ||
+             screen == Screen::Pets) {
+    screen = Screen::PetSettings;
+  } else if (screen == Screen::Updates) {
+    screen = recoveryBoot ? Screen::Home : Screen::PetSettings;
+    recoveryBoot = false;
+  } else if (screen == Screen::Library ||
+             screen == Screen::ReadingRewards) {
+    screen = Screen::BooksMenu;
+  } else if (screen == Screen::ReaderStatus) {
+    bookReader.close();
+    screen = Screen::Library;
+  } else if (screen == Screen::Reader) {
+    if (!readingProgress.savePosition(
+            bookReader.bookId(), bookReader.spine(),
+            bookReader.charStart())) {
+      setProgressSaveError();
+      return;
+    }
+    bookReader.close();
+    screen = Screen::Library;
   } else if (screen == Screen::PageCatch) {
     screen = Screen::Home;
-  } else if (screen == Screen::Reading && readingPhase == 1) {
-    readingPhase = 0;
-    pendingPages = 0;
   } else {
-    screen = Screen::Menu;
+    screen = Screen::MainMenu;
   }
 }
 
-void selectMenuItem() {
-  switch (menuIndex) {
-    case 0: screen = Screen::Home; break;
-    case 1: screen = Screen::Reading; break;
-    case 2: screen = Screen::Pantry; break;
-    case 3: screen = Screen::Toys; break;
-    case 4: screen = Screen::Behavior; break;
-    case 5: screen = Screen::Fragments; break;
-    case 6: screen = Screen::Diary; break;
-    case 7: screen = Screen::Stats; break;
-    case 8: screen = Screen::Pets; break;
-    case 9:
-      updateView = UpdateView::Menu;
-      screen = Screen::Updates;
-      break;
+bool settlePendingReadingReward() {
+  uint32_t transaction = 0;
+  bookpet::ReadingRewardKind kind = bookpet::ReadingRewardKind::None;
+  if (!readingProgress.pending(&transaction, &kind)) return true;
+  if (!pet.completeReadingTransaction(
+          transaction, kind == bookpet::ReadingRewardKind::Page,
+          kind == bookpet::ReadingRewardKind::Finish)) {
+    return false;
   }
+  return readingProgress.commit(transaction);
+}
+
+ReadingAwardResult awardReadingPosition(bool finish) {
+  if (!settlePendingReadingReward()) return ReadingAwardResult::SaveFailed;
+  const uint32_t transaction =
+      finish ? readingProgress.beginFinishReward(
+                   bookReader.bookId(), bookReader.spine(),
+                   bookReader.charStart())
+             : readingProgress.beginPageReward(
+                   bookReader.bookId(), bookReader.spine(),
+                   bookReader.charStart());
+  if (transaction == 0) {
+    return readingProgress.error()[0] ? ReadingAwardResult::SaveFailed
+                                      : ReadingAwardResult::NoReward;
+  }
+  if (!pet.completeReadingTransaction(transaction, !finish, finish) ||
+      !readingProgress.commit(transaction)) {
+    return ReadingAwardResult::SaveFailed;
+  }
+  return ReadingAwardResult::Granted;
+}
+
+void setProgressSaveError() {
+  snprintf(readerStatusTitle, sizeof(readerStatusTitle), "PROGRESS NOT SAVED");
+  snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
+           readingProgress.error()[0]
+               ? readingProgress.error()
+               : "Pet progress storage is full or unavailable. Restart and try again.");
+  screen = Screen::ReaderStatus;
+}
+
+bool turnReaderPage(bool forward) {
+  uint32_t buildBytes = 0;
+  uint8_t* buildStorage = display.lendBuildStorage(&buildBytes);
+  if (buildStorage) bookReader.setBuildStorage(buildStorage, buildBytes);
+  const bool turned =
+      forward ? bookReader.nextPage() : bookReader.previousPage();
+  bookReader.setBuildStorage(nullptr, 0);
+  if (buildStorage) display.returnBuildStorage();
+  if (!turned && bookReader.error()[0]) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "PAGE TURN FAILED");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
+             bookReader.error());
+    screen = Screen::ReaderStatus;
+  }
+  return turned;
+}
+
+void showReaderStatus(const char* title, const char* detail) {
+  snprintf(readerStatusTitle, sizeof(readerStatusTitle), "%s", title);
+  snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s", detail);
+  screen = Screen::ReaderStatus;
+  render();
+}
+
+bool scanLibrary() {
+  showReaderStatus("CHECKING LIBRARY",
+                   "Checking EPUB contents in /BOOKS. A large library may take a moment.");
+  if (!bookReader.scan()) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "LIBRARY NOT READY");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
+             bookReader.error());
+    render();
+    return false;
+  }
+  if (bookReader.bookCount() == 0) {
+    libraryIndex = 0;
+    libraryOffset = 0;
+  } else if (libraryIndex >= bookReader.bookCount()) {
+    libraryIndex = bookReader.bookCount() - 1;
+  }
+  if (bookReader.bookCount() <= 5) {
+    libraryOffset = 0;
+  } else {
+    const uint8_t maxOffset = bookReader.bookCount() - 5;
+    if (libraryOffset > maxOffset) libraryOffset = maxOffset;
+    if (libraryIndex < libraryOffset) libraryOffset = libraryIndex;
+    if (libraryIndex >= libraryOffset + 5) libraryOffset = libraryIndex - 4;
+  }
+  screen = Screen::Library;
+  return true;
+}
+
+bool openLibraryBook(uint8_t index) {
+  if (index >= bookReader.bookCount()) return false;
+  const uint64_t id = bookReader.bookIdAt(index);
+  uint16_t resumeSpine = 0;
+  uint32_t resumeChar = 0;
+  if (!readingProgress.resume(id, &resumeSpine, &resumeChar) &&
+      readingProgress.error()[0]) {
+    setProgressSaveError();
+    render();
+    return false;
+  }
+  showReaderStatus("OPENING BOOK",
+                   "Indexing the EPUB and preparing your saved page");
+  uint32_t buildBytes = 0;
+  uint8_t* buildStorage = display.lendBuildStorage(&buildBytes);
+  if (!buildStorage) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle),
+             "BOOK COULD NOT OPEN");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail),
+             "Reader memory is busy. Return to the library and try again.");
+    render();
+    return false;
+  }
+  bookReader.setBuildStorage(buildStorage, buildBytes);
+  const bool opened = bookReader.open(index, resumeSpine, resumeChar);
+  bookReader.setBuildStorage(nullptr, 0);
+  display.returnBuildStorage();
+  if (!opened) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "BOOK COULD NOT OPEN");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail), "%s",
+             bookReader.error());
+    render();
+    return false;
+  }
+  if (!readingProgress.savePosition(
+          bookReader.bookId(), bookReader.spine(),
+          bookReader.charStart())) {
+    setProgressSaveError();
+    bookReader.close();
+    render();
+    return false;
+  }
+  pet.startReadingSession();
+  if (awardReadingPosition(false) == ReadingAwardResult::SaveFailed) {
+    setProgressSaveError();
+    bookReader.close();
+    render();
+    return false;
+  }
+  screen = Screen::Reader;
+  fastRefreshes = FULL_REFRESH_EVERY;
+  return true;
+}
+
+void finishCurrentBook() {
+  const ReadingAwardResult result = awardReadingPosition(true);
+  if (result == ReadingAwardResult::Granted) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "BOOK FINISHED!");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail),
+             "Your pet earned a new toy, 5 Page Bites, and 25 XP");
+  } else if (result == ReadingAwardResult::NoReward) {
+    snprintf(readerStatusTitle, sizeof(readerStatusTitle), "THE END");
+    snprintf(readerStatusDetail, sizeof(readerStatusDetail),
+             "You already collected this book's completion reward");
+  } else {
+    setProgressSaveError();
+  }
+  bookReader.close();
+  screen = Screen::ReaderStatus;
 }
 
 void handleInput() {
@@ -972,18 +1279,156 @@ void handleInput() {
       }
       changed = true;
     }
-  } else if (screen == Screen::Menu) {
-    if (buttons.wasPressed(InputManager::BTN_UP)) {
-      menuIndex = (menuIndex + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT;
+  } else if (screen == Screen::MainMenu) {
+    if (buttons.wasPressed(InputManager::BTN_UP) ||
+        buttons.wasPressed(InputManager::BTN_LEFT)) {
+      mainIndex = (mainIndex + MAIN_ITEM_COUNT - 1) % MAIN_ITEM_COUNT;
       changed = true;
     }
-    if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-      menuIndex = (menuIndex + 1) % MENU_ITEM_COUNT;
+    if (buttons.wasPressed(InputManager::BTN_DOWN) ||
+        buttons.wasPressed(InputManager::BTN_RIGHT)) {
+      mainIndex = (mainIndex + 1) % MAIN_ITEM_COUNT;
       changed = true;
     }
     if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
-      selectMenuItem();
+      screen = mainIndex == 0 ? Screen::PetMenu : Screen::BooksMenu;
       changed = true;
+    }
+  } else if (screen == Screen::PetMenu) {
+    if (buttons.wasPressed(InputManager::BTN_UP)) {
+      petIndex = (petIndex + PET_ITEM_COUNT - 1) % PET_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+      petIndex = (petIndex + 1) % PET_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      screen = petIndex == 0 ? Screen::Home
+               : petIndex == 1 ? Screen::PetNook
+                               : Screen::PetSettings;
+      changed = true;
+    }
+  } else if (screen == Screen::PetNook) {
+    if (buttons.wasPressed(InputManager::BTN_UP)) {
+      nookIndex = (nookIndex + NOOK_ITEM_COUNT - 1) % NOOK_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+      nookIndex = (nookIndex + 1) % NOOK_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      screen = nookIndex == 0 ? Screen::Pantry
+               : nookIndex == 1 ? Screen::Toys
+                                : Screen::Diary;
+      changed = true;
+    }
+  } else if (screen == Screen::PetSettings) {
+    if (buttons.wasPressed(InputManager::BTN_UP)) {
+      settingsIndex =
+          (settingsIndex + SETTINGS_ITEM_COUNT - 1) % SETTINGS_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+      settingsIndex = (settingsIndex + 1) % SETTINGS_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (settingsIndex == 0) screen = Screen::Behavior;
+      if (settingsIndex == 1) screen = Screen::Stats;
+      if (settingsIndex == 2) screen = Screen::Pets;
+      if (settingsIndex == 3) {
+        updateView = UpdateView::Menu;
+        screen = Screen::Updates;
+      }
+      changed = true;
+    }
+  } else if (screen == Screen::BooksMenu) {
+    if (buttons.wasPressed(InputManager::BTN_UP)) {
+      booksIndex = (booksIndex + BOOKS_ITEM_COUNT - 1) % BOOKS_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_DOWN)) {
+      booksIndex = (booksIndex + 1) % BOOKS_ITEM_COUNT;
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (booksIndex == 2) {
+        screen = Screen::ReadingRewards;
+      } else if (scanLibrary()) {
+        if (booksIndex == 0) {
+          const int resume =
+              bookReader.findBook(readingProgress.currentBookId());
+          if (resume >= 0) openLibraryBook(static_cast<uint8_t>(resume));
+        }
+      }
+      changed = true;
+    }
+  } else if (screen == Screen::Library) {
+    if (buttons.wasPressed(InputManager::BTN_UP) &&
+        bookReader.bookCount() > 0) {
+      libraryIndex =
+          (libraryIndex + bookReader.bookCount() - 1) %
+          bookReader.bookCount();
+      if (libraryIndex < libraryOffset) libraryOffset = libraryIndex;
+      if (libraryIndex >= libraryOffset + 5) {
+        libraryOffset = libraryIndex - 4;
+      }
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_DOWN) &&
+        bookReader.bookCount() > 0) {
+      libraryIndex = (libraryIndex + 1) % bookReader.bookCount();
+      if (libraryIndex < libraryOffset) libraryOffset = libraryIndex;
+      if (libraryIndex >= libraryOffset + 5) {
+        libraryOffset = libraryIndex - 4;
+      }
+      changed = true;
+    }
+    if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
+      if (bookReader.bookCount() == 0) {
+        scanLibrary();
+      } else {
+        openLibraryBook(libraryIndex);
+      }
+      changed = true;
+    }
+  } else if (screen == Screen::Reader) {
+    const bool previous =
+        buttons.wasPressed(InputManager::BTN_LEFT) ||
+        buttons.wasPressed(InputManager::BTN_UP);
+    const bool next =
+        buttons.wasPressed(InputManager::BTN_RIGHT) ||
+        buttons.wasPressed(InputManager::BTN_DOWN) ||
+        buttons.wasPressed(InputManager::BTN_CONFIRM);
+    if (previous) {
+      if (turnReaderPage(false)) {
+        if (!readingProgress.savePosition(
+                bookReader.bookId(), bookReader.spine(),
+                bookReader.charStart())) {
+          setProgressSaveError();
+        }
+        changed = true;
+      } else if (screen == Screen::ReaderStatus) {
+        changed = true;
+      }
+    }
+    if (next) {
+      if (bookReader.atBookEnd()) {
+        finishCurrentBook();
+        changed = true;
+      } else {
+        if (turnReaderPage(true)) {
+          if (awardReadingPosition(false) ==
+              ReadingAwardResult::SaveFailed) {
+            setProgressSaveError();
+          }
+          changed = true;
+        } else if (screen == Screen::ReaderStatus) {
+          changed = true;
+        }
+      }
     }
   } else if (screen == Screen::Pantry &&
              buttons.wasPressed(InputManager::BTN_CONFIRM)) {
@@ -1003,55 +1448,12 @@ void handleInput() {
         gamePhase = 1;
       } else if (gamePhase == 1) {
         gameCaught = playerLane == targetLane;
-        pet.completePageCatch(gameCaught, gameFragment);
+        pet.completePageCatch(gameCaught);
         gamePhase = 2;
       } else {
         screen = Screen::Home;
       }
       changed = true;
-    }
-  } else if (screen == Screen::Reading) {
-    if (readingPhase == 0) {
-      if (buttons.wasPressed(InputManager::BTN_UP)) {
-        readingIndex = (readingIndex + 1) % 2;
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-        readingIndex = (readingIndex + 1) % 2;
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
-        if (readingIndex == 0) {
-          readingPhase = 1;
-          pendingPages = 0;
-        } else {
-          pet.finishBook();
-        }
-        changed = true;
-      }
-    } else {
-      if (buttons.wasPressed(InputManager::BTN_LEFT)) {
-        if (pendingPages > 0) pendingPages--;
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_RIGHT)) {
-        if (pendingPages < 999) pendingPages++;
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_UP)) {
-        pendingPages = min<uint16_t>(999, pendingPages + 10);
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_DOWN)) {
-        pendingPages = pendingPages >= 10 ? pendingPages - 10 : 0;
-        changed = true;
-      }
-      if (buttons.wasPressed(InputManager::BTN_CONFIRM)) {
-        pet.logPages(pendingPages);
-        pendingPages = 0;
-        readingPhase = 0;
-        changed = true;
-      }
     }
   } else if (screen == Screen::Pets) {
     if (buttons.wasPressed(InputManager::BTN_LEFT)) {
@@ -1184,6 +1586,8 @@ void setup() {
     updateView = UpdateView::Menu;
   }
   pet.begin();
+  readingProgress.begin();
+  settlePendingReadingReward();
   pet.wake();
   beginDisplayHardware();
   display.requestResync();
@@ -1219,6 +1623,18 @@ void loop() {
 
   if (buttons.isPressed(InputManager::BTN_POWER) &&
       buttons.getPowerButtonHeldTime() > 1200) {
+    if (bookReader.isOpen()) {
+      if (!readingProgress.savePosition(
+              bookReader.bookId(), bookReader.spine(),
+              bookReader.charStart())) {
+        setProgressSaveError();
+        render();
+        freeink::PowerManager::waitForPowerButtonRelease();
+        buttons.update();
+        return;
+      }
+      bookReader.close();
+    }
     pet.apply(PetAction::Rest);
     screen = Screen::Home;
     render();
@@ -1251,7 +1667,20 @@ void loop() {
     render();
   }
 
-  if (idleFor >= sleepAfter) {
+  const uint32_t effectiveSleepAfter =
+      bookReader.isOpen() ? 15 * 60'000UL : sleepAfter;
+  if (idleFor >= effectiveSleepAfter) {
+    if (bookReader.isOpen()) {
+      if (!readingProgress.savePosition(
+              bookReader.bookId(), bookReader.spine(),
+              bookReader.charStart())) {
+        setProgressSaveError();
+        lastInputMs = now;
+        render();
+        return;
+      }
+      bookReader.close();
+    }
     if (pet.state().autonomousEnabled) {
       pet.beginNaturalSleep();
       Serial.println("[bookpet] natural sleep");

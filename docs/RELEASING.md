@@ -21,21 +21,27 @@ The public key is stored at `keys/book-pet-x3-update-public.pem` and embedded in
 ## Create a release
 
 1. Update `VERSION`, `src/BookPetVersion.h`, and `CHANGELOG.md`.
-2. Build and test both environments:
+2. Run the release invariants, reader suite, and both firmware builds:
 
    ```sh
+   python3 scripts/validate_project.py
+   freeink-sdk/libs/book/FreeInkBook/test/host/run.sh
    pio run -e xteink_x3
    pio run -e xteink_x3_release
    ```
 
 3. Hardware-test the release environment on an X3:
+   - scan a FAT32 or exFAT `/BOOKS` library;
+   - open, page, leave, and resume an EPUB;
+   - confirm a revisited page cannot duplicate rewards;
+   - confirm sleep/wake preserves the current reading position;
    - install the signed package from SD;
    - upload the signed package through the local browser portal;
    - confirm a deliberately corrupted signature is rejected without reboot;
    - boot the new OTA slot and restore the previous slot; and
    - enter hold-Back recovery and confirm the screen remains open.
 4. Merge the release commit to `main`.
-5. Create and push the matching tag, such as `v0.5.0`.
+5. Create and push the matching tag, such as `v1.0.0`.
 
 The release workflow then:
 
@@ -75,6 +81,29 @@ shasum -a 256 -c SHA256SUMS
 ```
 
 The generated `dist/` directory is ignored by Git.
+
+## Release evidence
+
+Before tagging, record in the pull request:
+
+- invariant-validator result;
+- FreeInkBook host pass counts and any skipped optional image case;
+- normal and release firmware sizes;
+- exact X3 hardware and panel variant when known;
+- SD format and EPUB fixture used;
+- reader, persistence, sleep/wake, and update paths physically checked;
+- any battery-duration or ghosting work intentionally left for longer-term
+  observation.
+
+After pushing the tag, wait for the protected signing environment approval,
+then confirm:
+
+- the GitHub release contains the factory, signed update, raw application,
+  bootloader, partition, OTA helper, manifest, and checksum files;
+- `SHA256SUMS` verifies;
+- GitHub Pages deployed the matching installer manifest;
+- `/update/stable.json` reports the new version;
+- the latest-release badge and installer both point to the new release.
 
 ## Key loss or compromise
 

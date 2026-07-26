@@ -21,6 +21,35 @@ profile, X3 panel detection, and deep-sleep wake source. Keep the X3 GPIO 13
 soft-power latch in Book Pet until FreeInk represents that latch in its X3
 board profile and the replacement has been physically verified.
 
+## Reader and persistence
+
+Read `ARCHITECTURE.md` before changing the reader, storage, or reward path.
+Keep user EPUBs and rebuildable caches on SD, per-book progress in SPIFFS, and
+pet state plus the pending reward journal in NVS.
+
+Book identity must remain content-derived rather than filename-derived.
+Reading rewards must remain replayable and idempotent across interruption.
+Hidden filesystem metadata must never be treated as a visible EPUB. Do not
+let one invalid EPUB poison valid library entries. Per-book progress must keep
+its checksum and backup recovery, and a previously initialized SPIFFS
+partition must fail closed rather than auto-format after a mount failure. Do
+not increase reader memory budgets without checking both firmware variants
+and complex books on hardware.
+
+## Testing
+
+Follow `TESTING.md`. At minimum, run:
+
+```sh
+python3 scripts/validate_project.py
+freeink-sdk/libs/book/FreeInkBook/test/host/run.sh
+pio run -e xteink_x3
+```
+
+Build `xteink_x3_release` for any release, persistence, partition, signing,
+update, or recovery change. A bug fix needs a regression assertion or fixture,
+and a user-visible hardware change needs a clearly recorded X3 check.
+
 ## Firmware updates
 
 Never change `partitions.csv`, update signature enforcement, the embedded public
@@ -35,7 +64,8 @@ RAM-only, and normal pet play must not enable the radio.
 
 Preserve pet NVS through OTA, rollback, and recovery. A first-time factory
 installer may offer a full erase because an unknown preexisting partition table
-cannot be preserved safely.
+cannot be preserved safely. Preserve the reading-progress SPIFFS partition
+during normal OTA and rollback as well.
 
 ## AI transparency
 
