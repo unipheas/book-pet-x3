@@ -4,6 +4,21 @@ All notable changes to Book Pet are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added an on-device Updates screen with SD card, phone/browser, About, and
+  previous-version restore options.
+- Added a temporary WPA-protected local update portal that needs no phone app
+  and never saves home Wi-Fi credentials.
+- Added signed HTTPS updates from the official Book Pet release manifest.
+- Added dual-slot OTA installation, deferred boot confirmation, and rollback to
+  the previous working firmware.
+- Added hold-Back-at-power-on recovery mode.
+- Added a one-click ESP Web Tools installer and automated GitHub Pages update
+  service.
+- Added reproducible RSA-4096 signing, factory-image packaging, checksums, and
+  tag-driven GitHub release automation.
+
 ### Changed
 
 - Migrated the X3 hardware layer from the legacy community SDK to a pinned
@@ -12,6 +27,8 @@ All notable changes to Book Pet are documented here.
   FreeInk board and power abstractions.
 - Added startup detection for both original and newer X3 display-controller
   revisions while preserving the existing portrait UI and pet save data.
+- Official release builds now reject local and SD firmware without the Book Pet
+  release signature. Developer builds remain friendly to unsigned local work.
 
 ## [0.4.0] - 2026-07-25
 

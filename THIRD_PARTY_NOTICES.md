@@ -15,3 +15,19 @@ attribution in `freeink-sdk/NOTICE`.
 
 Book Pet is an independent project and is not affiliated with or endorsed by
 XTEINK, FreeInk, CrossPoint, or OpenX4.
+
+Book Pet firmware also builds against:
+
+- ArduinoJson — <https://github.com/bblanchon/ArduinoJson> — MIT
+- SdFat — <https://github.com/greiman/SdFat> — MIT
+- Arduino core for ESP32 — <https://github.com/espressif/arduino-esp32> —
+  LGPL-2.1 with Espressif and third-party components under their respective
+  licenses
+- ESP-IDF — <https://github.com/espressif/esp-idf> — Apache-2.0 with
+  third-party components under their respective licenses
+
+The first-install website loads ESP Web Tools 10 from unpkg:
+
+- ESP Web Tools — <https://github.com/esphome/esp-web-tools> — Apache-2.0
+
+These projects retain their own copyright notices and license terms.

@@ -1,0 +1,105 @@
+name: Release firmware
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: book-pet-release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        run: pip install platformio==6.1.19
+
+      - name: Verify tag and version
+        shell: bash
+        run: |
+          python scripts/validate_project.py
+          expected="v$(tr -d '[:space:]' < VERSION)"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
+            exit 1
+          fi
+
+      - name: Build signed-update firmware
+        run: pio run -e xteink_x3_release
+
+      - name: Load release signing key
+        shell: bash
+        env:
+          BOOKPET_OTA_SIGNING_KEY: ${{ secrets.BOOKPET_OTA_SIGNING_KEY }}
+        run: |
+          if [[ -z "$BOOKPET_OTA_SIGNING_KEY" ]]; then
+            echo "BOOKPET_OTA_SIGNING_KEY is not configured." >&2
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/book-pet-keys"
+          umask 077
+          printf '%s\n' "$BOOKPET_OTA_SIGNING_KEY" \
+            > "$RUNNER_TEMP/book-pet-keys/release.pem"
+
+      - name: Package release and web installer
+        run: |
+          python scripts/package_release.py \
+            --private-key "$RUNNER_TEMP/book-pet-keys/release.pem"
+          cd dist
+          sha256sum --check SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          title="Book Pet $(tr -d '[:space:]' < VERSION)"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$title" \
+              --generate-notes
+          fi
+
+      - name: Assemble installer site
+        shell: bash
+        run: |
+          mkdir -p pages/update
+          cp -R site/. pages/
+          cp dist/manifest.json pages/manifest.json
+          cp dist/book-pet-x3-factory.bin pages/
+          cp dist/book-pet-x3-update.bin pages/
+          cp dist/stable.json pages/update/stable.json
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: pages
+
+  deploy-pages:
+    needs: package
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy installer and update service
+        id: deployment
+        uses: actions/deploy-pages@v5

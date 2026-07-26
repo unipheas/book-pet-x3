@@ -1,0 +1,21 @@
+#pragma once
+
+// Public half of the Book Pet release-signing key. The private key is never
+// stored in this repository; official release automation reads it from the
+// BOOKPET_OTA_SIGNING_KEY GitHub Actions secret.
+inline constexpr char kBookPetUpdatePublicKey[] = R"BOOKPET_KEY(
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAipwzYOqKOtREWJuXCGfU
+6a7B7Z55/LbZU2BxFRZfDkl0PRZXcVB9gyHMoqjvdZGScr3eB0gwq9sOge0Eq5Lj
+aRBMFr+I7ZXh8EyC/rj2Iri5PoRubyBNd1jlBOLPqC4oB7VmlZmrQGGnhIXwwdnw
+XzvqU569sxHZHGgObYNOAFXdYg5p/M6PAeFXmiJleUeENlqp08CktBin43PicgmB
+1ChnLjR75aNJW4WKtx0xSG6HlZQsvsvby1aVvS7kekBYPKH/1GYyWmFjVPopyXD2
+OMfOIRcgYZsVPE0Ca4TKTuNhJObtaAMJ3SiMi729YcjbqamGkIiETXUWt2a0gPj+
+4U7cth/ss+EOLr2i4chUeU0yfLVm5eGgl3wWpjrfk2WHn9+6c45/UiIVC6H+98te
+fHwvS/gbPw9SCkHw9Iq7HnFh5pnfzlBkDYrn5n7cDCQabYC4KWPMMNRe8LXEj0Pn
+idL3rKBEegwtr9B4YmHaVA+jQJ24PIWIFxwRHee3ssrYC4jaHlisDGwT6Gbeu4G7
+uRDrRb9tvxzRLizqakvJ1nxiWTeqZRi6ISrgNeTO23QrKqCe2nq/fxT/u4d5Wugm
+vRWaFigqVAaypYHJHYF+Ok6PGOiqH/OftpK9wVDRs0n+OOI9K6c1ADi62i7sjIV3
+DdACI1h5By0DbJUZp6paWlkCAwEAAQ==
+-----END PUBLIC KEY-----
+)BOOKPET_KEY";

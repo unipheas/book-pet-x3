@@ -24,8 +24,13 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio==6.1.19
 
+      - name: Validate release invariants
+        run: python scripts/validate_project.py
+
       - name: Build
-        run: pio run
+        run: |
+          pio run -e xteink_x3
+          pio run -e xteink_x3_release
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v6

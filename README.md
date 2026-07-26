@@ -6,7 +6,8 @@
 
 A tiny, standalone portrait e-paper virtual pet for the **XTEINK X3 Developer
 Edition**. Book Pet lives entirely on the device: no phone, Wi-Fi, Bluetooth,
-account, cloud service, or AI connection required.
+account, cloud service, or AI connection is required for play. Wi-Fi is only
+turned on when you deliberately open the update screen.
 
 Meet Byte, Mote, and Pip: original 8-bit pixel familiars who eat pages. Feed
 them, play with them, read real books to earn food and toys, level up, and carry
@@ -44,6 +45,12 @@ stop-motion rhythm is designed around the strengths of e-paper.
 - All six page buttons mapped to navigation and actions
 - Conservative fast refreshes with periodic full cleanup refreshes
 - Complete offline operation
+- One-click first installation from a supported desktop browser
+- No-app phone updates through a temporary private X3 Wi-Fi network
+- SD-card updates from `/BOOKPET/UPDATE.BIN`
+- Official signed online updates with RAM-only Wi-Fi credentials
+- Two firmware slots with previous-version rollback
+- Hold-Back-at-boot recovery menu
 - Reproducible PlatformIO build
 - FreeInk-based X3 display, input, board detection, and sleep integration
 - Hardware-tested release binaries
@@ -69,18 +76,44 @@ two dream moments, the pet wakes itself and resumes its visible life.
 
 ## Install a release
 
-The easiest path is to download the files attached to the
+The easiest first installation is the
+[Book Pet web installer](https://unipheas.github.io/book-pet-x3/). Open it on
+a desktop or laptop in a browser that supports Web Serial, connect and wake the
+X3 with its magnetic USB cable, then choose **Install Book Pet**. No development
+tools are required.
+
+The USB installer cannot run on iPhone or iPad. After Book Pet is installed,
+however, a phone can install future updates without an app or USB cable.
+
+You can also download the files attached to the
 [latest GitHub release](https://github.com/unipheas/book-pet-x3/releases/latest).
 
 The release includes:
 
 - `book-pet-x3-factory.bin` — merged image for a complete first-time flash
-- `book-pet-x3.bin` — application image for PlatformIO/developer workflows
+- `book-pet-x3-update.bin` — signed file for phone and SD updates
+- `book-pet-x3.bin` — raw application image for developer workflows
 - Bootloader and partition images
 - SHA-256 checksums
 
-The safest supported installation path is still PlatformIO, because it selects
-the correct serial port and writes every image at the correct offset.
+See [Updating and recovery](docs/UPDATING.md) for every supported path.
+
+## Update an installed Book Pet
+
+Open **Pet Menu → Updates** on the X3.
+
+- **Phone / Browser:** Book Pet shows a temporary Wi-Fi name and random
+  password. Join it from a phone, open `192.168.4.1`, then upload the signed
+  release file or ask the X3 to fetch the latest official version.
+- **Update from SD:** copy `book-pet-x3-update.bin` to
+  `/BOOKPET/UPDATE.BIN` on a FAT32 or exFAT card, insert it, then choose the SD
+  option.
+- **Restore previous:** return to the other known-good firmware slot. Pet
+  progress is stored separately and remains intact.
+
+Book Pet writes the inactive firmware slot first. It only switches after the
+complete file, SHA-256 digest, and official release signature have passed
+verification. Do not remove power while an installation is in progress.
 
 ## Build from source
 
@@ -155,11 +188,15 @@ were verified during the v0.1 hardware bring-up.
 
 ## Recovery and safety
 
-Keep a known-good CrossPoint or stock recovery image before flashing. If Book
-Pet does not boot, use the CrossPoint web flasher/recovery process appropriate
-for your exact X3 edition. Restricted devices can require a different recovery
-path, so confirm that the computer sees the X3 as a serial device before erasing
-anything.
+Hold the front **Back** button while powering on to open **Recovery & Updates**
+without starting normal pet activity. From there you can install from SD, start
+the phone portal, or restore the previous firmware slot.
+
+Keep a known-good CrossPoint or stock recovery image before the first install.
+If neither Book Pet firmware slot boots, use the USB
+[Book Pet web installer](https://unipheas.github.io/book-pet-x3/) for a clean
+reinstall. Restricted devices can require a different recovery path, so confirm
+that the computer sees the X3 as a serial device before erasing anything.
 
 ## Design notes
 
@@ -182,6 +219,8 @@ anything.
 src/             Pet state, controls, rendering, and firmware entry point
 firmware/        Verified release binaries and checksums
 freeink-sdk/     Pinned multi-device e-paper SDK Git submodule
+site/            One-click browser installer
+scripts/         Signed release packaging
 platformio.ini   Reproducible ESP32-C3 build configuration
 ```
 
