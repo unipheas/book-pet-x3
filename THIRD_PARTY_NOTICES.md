@@ -1,16 +1,17 @@
 # Third-Party Notices
 
-Book Pet uses the CrossPoint community SDK as a pinned Git submodule for XTEINK
-display and input support.
+Book Pet uses the FreeInk SDK as a pinned Git submodule for XTEINK display,
+input, board detection, and power-management support.
 
-- Project: CrossPoint community SDK
-- Source: https://github.com/crosspoint-reader/community-sdk
+- Project: FreeInk SDK
+- Source: https://github.com/Free-Ink/freeink-sdk
 - License: MIT
-- Pinned revision: `198ad267219c25c8ab84418b806c66f1fb5216a3`
+- Pinned revision: `e62f6c16f0ed477ffbe1ad15fa838f32433adfc3`
 
 The SDK's copyright and license remain with its respective contributors. Its
-license text is available in `community-sdk/LICENSE`.
+license text is available in `freeink-sdk/LICENSE`. FreeInk contains code
+derived from the OpenX4 E-Paper Community SDK and preserves its upstream
+attribution in `freeink-sdk/NOTICE`.
 
 Book Pet is an independent project and is not affiliated with or endorsed by
-XTEINK or CrossPoint.
-
+XTEINK, FreeInk, CrossPoint, or OpenX4.

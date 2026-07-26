@@ -6,6 +6,8 @@ OpenAI Codex has been used extensively as a development collaborator,
 including:
 
 - researching XTEINK X3 community firmware and development tooling;
+- migrating the hardware integration to the FreeInk SDK while preserving
+  X3-specific, physically verified power behavior;
 - proposing firmware architecture and interaction designs;
 - writing and revising C++ firmware, documentation, and release materials;
 - running compiler builds, packaging firmware images, and checking release
