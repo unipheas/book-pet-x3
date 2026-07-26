@@ -43,7 +43,8 @@ rebooting.
 The phone portal uses a random high-entropy WPA password, a per-session request
 token, strict local Host/Origin checks, and one serialized update operation at a
 time. Station Wi-Fi is disconnected and credentials are cleared after every
-official update check.
+official update check. The USB installer self-hosts its complete pinned browser
+module tree and only permits same-origin scripts.
 
 Firmware and flashing changes can affect device availability and recovery.
 Reports involving signature bypass, unsafe flash layouts, boot failures,

@@ -35,6 +35,8 @@ All notable changes to Book Pet are documented here.
   release signature. Developer builds remain friendly to unsigned local work.
 - New OTA slots now remain pending through a five-second healthy runtime window
   instead of being confirmed immediately after the first render.
+- A power hold during that window now waits for the normal health deadline
+  instead of confirming the new slot early.
 
 ### Fixed
 
@@ -48,12 +50,16 @@ All notable changes to Book Pet are documented here.
 - Reopening the phone updater no longer registers duplicate web routes, and
   status responses safely handle unusual Wi-Fi names.
 - Phone updates now serialize all install operations, use a high-entropy access
-  password plus per-session request token, and disconnect home Wi-Fi after
-  every online check.
+  password plus per-session request token, and erase home Wi-Fi credentials
+  after every online check.
 - Release packaging now refuses unexpected files so local test artifacts cannot
   be swept into a published release.
-- The USB installer now pins its flashing component to an exact version with
-  subresource integrity and a restrictive content-security policy.
+- The USB installer now self-hosts the complete pinned ESP Web Tools module
+  tree under a restrictive same-origin content-security policy.
+- Release tags must point to commits already on `main`, and release packaging
+  runs without persisted repository credentials or newly downloaded tools.
+- Release builds install a hash-locked PlatformIO dependency set and verify the
+  pinned pioarduino platform archive before compilation.
 
 ### Verified
 

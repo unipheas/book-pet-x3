@@ -106,6 +106,53 @@ def verify_signed_update(source: Path, signed: Path, public_key: Path) -> None:
         )
 
 
+def verify_factory_image(
+    factory: Path,
+    app: Path,
+    bootloader: Path,
+    partitions: Path,
+    boot_app0: Path,
+) -> None:
+    image = factory.read_bytes()
+    app_bytes = app.read_bytes()
+    bootloader_bytes = bootloader.read_bytes()
+    partitions_bytes = partitions.read_bytes()
+    boot_app0_bytes = boot_app0.read_bytes()
+    expected_size = 0x10000 + len(app_bytes)
+    if len(image) != expected_size:
+        raise SystemExit(
+            f"Factory image has the wrong size: expected {expected_size}, "
+            f"got {len(image)}"
+        )
+
+    # esptool rewrites the flash-mode byte and bootloader digest while merging.
+    # Every other bootloader byte and every later component must remain exact.
+    merged_bootloader = image[: len(bootloader_bytes)]
+    if (
+        merged_bootloader[:3] != bootloader_bytes[:3]
+        or merged_bootloader[4:-32] != bootloader_bytes[4:-32]
+    ):
+        raise SystemExit("Factory image does not contain the release bootloader")
+    if image[len(bootloader_bytes) : 0x8000] != b"\xff" * (
+        0x8000 - len(bootloader_bytes)
+    ):
+        raise SystemExit("Factory image bootloader padding is not empty")
+    if image[0x8000 : 0x8000 + len(partitions_bytes)] != partitions_bytes:
+        raise SystemExit("Factory image partition table does not match the build")
+    if image[0x8000 + len(partitions_bytes) : 0xE000] != b"\xff" * (
+        0xE000 - 0x8000 - len(partitions_bytes)
+    ):
+        raise SystemExit("Factory image partition padding is not empty")
+    if image[0xE000 : 0xE000 + len(boot_app0_bytes)] != boot_app0_bytes:
+        raise SystemExit("Factory image OTA selector does not match the build")
+    if image[0xE000 + len(boot_app0_bytes) : 0x10000] != b"\xff" * (
+        0x10000 - 0xE000 - len(boot_app0_bytes)
+    ):
+        raise SystemExit("Factory image OTA-selector padding is not empty")
+    if image[0x10000:] != app_bytes:
+        raise SystemExit("Factory image application does not match the signed build")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     signing = parser.add_mutually_exclusive_group(required=True)
@@ -117,6 +164,7 @@ def main() -> None:
         default=ROOT / ".pio" / "build" / "xteink_x3_release",
     )
     parser.add_argument("--boot-app0", type=Path)
+    parser.add_argument("--factory-image", type=Path)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
     parser.add_argument(
         "--base-url",
@@ -173,31 +221,38 @@ def main() -> None:
     if update.stat().st_size > MAX_UPDATE_BYTES:
         raise SystemExit("Signed update does not fit an OTA partition")
 
-    subprocess.run(
-        esptool_command()
-        + [
-            "--chip",
-            "esp32c3",
-            "merge-bin",
-            "-o",
-            str(factory),
-            "--flash-mode",
-            "dio",
-            "--flash-freq",
-            "40m",
-            "--flash-size",
-            "16MB",
-            "0x0",
-            str(bootloader),
-            "0x8000",
-            str(partitions),
-            "0xe000",
-            str(boot_app0),
-            "0x10000",
-            str(app),
-        ],
-        check=True,
-    )
+    if args.factory_image:
+        supplied_factory = require(args.factory_image.resolve())
+        verify_factory_image(
+            supplied_factory, app, bootloader, partitions, boot_app0
+        )
+        shutil.copy2(supplied_factory, factory)
+    else:
+        subprocess.run(
+            esptool_command()
+            + [
+                "--chip",
+                "esp32c3",
+                "merge-bin",
+                "-o",
+                str(factory),
+                "--flash-mode",
+                "dio",
+                "--flash-freq",
+                "40m",
+                "--flash-size",
+                "16MB",
+                "0x0",
+                str(bootloader),
+                "0x8000",
+                str(partitions),
+                "0xe000",
+                str(boot_app0),
+                "0x10000",
+                str(app),
+            ],
+            check=True,
+        )
 
     base_url = args.base_url.rstrip("/") + "/"
     update_digest = sha256(update)

@@ -98,10 +98,9 @@ uint8_t fastRefreshes = 0;
 
 void render(bool forceFull = false);
 
-void confirmHealthyUpdateIfDue(bool force = false) {
+void confirmHealthyUpdateIfDue() {
   if (!otaConfirmPending) return;
-  if (!force &&
-      static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
+  if (static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
     return;
   }
   if (bookpet::FirmwareUpdater::confirmRunningImage()) {
@@ -809,7 +808,15 @@ void render(bool forceFull) {
 }
 
 void enterDeepSleep() {
-  confirmHealthyUpdateIfDue(true);
+  // Do not let an immediate power hold bypass the post-update health window.
+  // Wait out the remaining few seconds, then make one normal confirmation
+  // attempt. If confirmation fails, leave the image pending so the bootloader
+  // can still roll back on a later unhealthy boot.
+  while (otaConfirmPending &&
+         static_cast<int32_t>(millis() - otaConfirmAfterMs) < 0) {
+    delay(10);
+  }
+  confirmHealthyUpdateIfDue();
   Serial.printf("[bookpet] deep sleep pet_sleeping=%u\n",
                 pet.state().sleeping);
   Serial.flush();

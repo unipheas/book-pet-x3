@@ -39,7 +39,8 @@ The public key is stored at `keys/book-pet-x3-update-public.pem` and embedded in
 
 The release workflow then:
 
-1. checks that the tag matches `VERSION`;
+1. checks that the tag matches `VERSION` and points to a commit already on
+   `main`;
 2. builds the signature-enforcing firmware;
 3. pauses for approval before a fresh isolated job can read the environment
    signing secret;
@@ -50,6 +51,12 @@ The release workflow then:
    online-update manifest;
 8. creates the GitHub release; and
 9. deploys the installer and stable update to GitHub Pages.
+
+The publishing job verifies the already-built factory image against the exact
+bootloader, partition table, OTA selector, and signed application. It neither
+downloads new executable packaging tools nor keeps repository credentials in
+the checkout. The build job uses a hash-locked Python tool set and verifies the
+pinned pioarduino platform archive before compilation.
 
 ## Local package verification
 

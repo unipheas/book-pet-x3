@@ -292,7 +292,7 @@ void UpdatePortal::performOfficialUpdateWork() {
   setStatus("SECURING CONNECTION", "Setting the clock for HTTPS");
   if (!syncSecureClock()) {
     setStatus("ONLINE UPDATE FAILED", "Could not set a secure network clock");
-    WiFi.disconnect(false);
+    WiFi.disconnect(false, true);
     return;
   }
 
@@ -393,7 +393,7 @@ void UpdatePortal::performOfficialUpdate() {
   performOfficialUpdateWork();
   wifiSsid_ = "";
   wifiPassword_ = "";
-  WiFi.disconnect(false);
+  WiFi.disconnect(false, true);
   WiFi.setSleep(true);
   officialRunning_ = false;
 }
@@ -418,7 +418,7 @@ void UpdatePortal::stop() {
   firmwareUpdater.abort();
   server_.stop();
   dns_.stop();
-  WiFi.disconnect(true, false);
+  WiFi.disconnect(true, true);
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_OFF);
   active_ = false;

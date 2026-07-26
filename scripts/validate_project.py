@@ -170,6 +170,10 @@ def check_boot_release_guard() -> None:
         raise SystemExit(
             "A new OTA slot must not be confirmed immediately in setup"
         )
+    if "confirmHealthyUpdateIfDue(true)" in source:
+        raise SystemExit(
+            "Sleep must not bypass the OTA healthy-runtime window"
+        )
     if "OTA_HEALTHY_RUNTIME_MS = 5'000" not in source:
         raise SystemExit("OTA boot confirmation needs a healthy runtime window")
     if "confirmHealthyUpdateIfDue();" not in loop:
@@ -192,7 +196,8 @@ def check_update_portal_hardening() -> None:
         "tokenAllowed()",
         "sessionToken_",
         "char password[19]",
-        "WiFi.disconnect(false)",
+        "WiFi.disconnect(false, true)",
+        "WiFi.disconnect(true, true)",
     )
     if any(token not in source and token not in header for token in required):
         raise SystemExit(
@@ -226,6 +231,11 @@ def check_release_workflow_security() -> None:
         "book-pet-unsigned-release",
         "book-pet-signed-update",
         "--signed-update",
+        "--factory-image",
+        "git merge-base --is-ancestor",
+        "persist-credentials: false",
+        "--require-hashes",
+        "ffce4a512581abd417c42edf2695a3b49e8b1447849847d3f62d0db695da9efc",
     )
     if any(token not in release for token in required_release):
         raise SystemExit(
@@ -235,13 +245,17 @@ def check_release_workflow_security() -> None:
         raise SystemExit(
             "CI must publish the signature-enforcing firmware artifact"
         )
+    vendor = ROOT / "site" / "vendor" / "esp-web-tools-10.4.0"
     if (
-        "esp-web-tools@10.4.0" not in site
-        or 'integrity="sha384-' not in site
-        or "Content-Security-Policy" not in site
+        'src="vendor/esp-web-tools-10.4.0/install-button.js"' not in site
+        or "https://unpkg.com" in site
+        or "script-src 'self'" not in site
+        or not (vendor / "install-button.js").is_file()
+        or not (vendor / "install-dialog-im156JnI.js").is_file()
+        or not (vendor / "LICENSE").is_file()
     ):
         raise SystemExit(
-            "The web installer dependency must be pinned with SRI and CSP"
+            "The complete web installer dependency must be pinned and self-hosted"
         )
 
 

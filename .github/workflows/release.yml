@@ -19,13 +19,42 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
-      - name: Install PlatformIO
-        run: pip install platformio==6.1.19
+      - name: Install hash-locked PlatformIO
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: \
+            -r scripts/requirements-release.txt
+
+      - name: Verify the embedded platform archive
+        shell: bash
+        run: |
+          platform_archive="$RUNNER_TEMP/platform-espressif32.zip"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$platform_archive" \
+            "https://github.com/pioarduino/platform-espressif32/releases/download/55.03.37/platform-espressif32.zip"
+          echo "ffce4a512581abd417c42edf2695a3b49e8b1447849847d3f62d0db695da9efc  $platform_archive" \
+            | sha256sum --check --strict
+          PLATFORM_ARCHIVE="$platform_archive" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          config = Path("platformio.ini")
+          source = (
+              "https://github.com/pioarduino/platform-espressif32/"
+              "releases/download/55.03.37/platform-espressif32.zip"
+          )
+          text = config.read_text(encoding="utf-8")
+          if text.count(source) != 1:
+              raise SystemExit("Pinned platform URL changed unexpectedly")
+          archive = Path(os.environ["PLATFORM_ARCHIVE"]).resolve().as_uri()
+          config.write_text(text.replace(source, archive), encoding="utf-8")
+          PY
 
       - name: Verify tag and version
         shell: bash
@@ -34,6 +63,12 @@ jobs:
           expected="v$(tr -d '[:space:]' < VERSION)"
           if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
             echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin \
+            "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tags must point to a commit already on main." >&2
             exit 1
           fi
 
@@ -50,6 +85,15 @@ jobs:
           cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" \
             release-build/
           cp keys/book-pet-x3-update-public.pem release-build/update-public.pem
+          "$HOME/.platformio/penv/bin/python" \
+            "$HOME/.platformio/packages/tool-esptoolpy/esptool.py" \
+            --chip esp32c3 merge-bin \
+            -o release-build/book-pet-x3-factory.bin \
+            --flash-mode dio --flash-freq 40m --flash-size 16MB \
+            0x0 release-build/bootloader.bin \
+            0x8000 release-build/partitions.bin \
+            0xe000 release-build/boot_app0.bin \
+            0x10000 release-build/firmware.bin
 
       - name: Upload unsigned release inputs
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -128,6 +172,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           submodules: recursive
+          persist-credentials: false
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -147,10 +192,10 @@ jobs:
 
       - name: Package release and web installer
         run: |
-          pip install esptool==5.1.2
           python scripts/package_release.py \
             --build-dir release-build \
             --boot-app0 release-build/boot_app0.bin \
+            --factory-image release-build/book-pet-x3-factory.bin \
             --signed-update release-signed/book-pet-x3-update.bin
           cd dist
           sha256sum --check SHA256SUMS

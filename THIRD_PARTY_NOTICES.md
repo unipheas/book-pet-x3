@@ -26,7 +26,8 @@ Book Pet firmware also builds against:
 - ESP-IDF — <https://github.com/espressif/esp-idf> — Apache-2.0 with
   third-party components under their respective licenses
 
-The first-install website loads ESP Web Tools 10 from unpkg:
+The first-install website self-hosts the complete ESP Web Tools 10.4.0 browser
+module tree under `site/vendor/esp-web-tools-10.4.0`:
 
 - ESP Web Tools — <https://github.com/esphome/esp-web-tools> — Apache-2.0
 
