@@ -129,6 +129,9 @@ def main() -> None:
 
     base_url = args.base_url.rstrip("/") + "/"
     update_digest = sha256(update)
+    (output / f"{update.name}.sha256").write_text(
+        f"{update_digest}  {update.name}\n", encoding="utf-8"
+    )
     stable = {
         "schema": 1,
         "product": "book-pet-x3",
